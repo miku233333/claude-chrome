@@ -4,12 +4,12 @@
 
 [English](README.md)
 
-Claude Chrome 1.1.0 是輕量原生 macOS 啟動器，使用獨立 Google Chrome profile 及固定本機 HTTP 代理。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
+Claude Chrome 1.2.0 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
 - Apple 晶片 Mac，macOS 13 或以上
-- Google Chrome 安裝於 `/Applications`
+- 建置時 Google Chrome 安裝於 `/Applications`
 - HTTP 代理監聽 `127.0.0.1:17897`
 - 已安裝包含 `swiftc` 的 Command Line Tools
 
@@ -21,7 +21,9 @@ Claude Chrome 1.1.0 是輕量原生 macOS 啟動器，使用獨立 Google Chrome
 ./scripts/build.sh
 ```
 
-App 會輸出至 `dist/Claude Chrome.app`，以 ad hoc 簽署供本機使用。建置流程最多保留一份舊版本：`dist/Claude Chrome.app.latest-backup`。
+App 會輸出至 `dist/Claude Chrome.app`，內置本機已安裝的 Chrome 核心，以 ad hoc 簽署供本機使用。在 APFS 上會複製為共享檔案資料的 clone。建置流程最多保留一份舊版本：`dist/Claude Chrome.app.latest-backup`。
+
+內置核心是建置時的 Chrome 版本快照。更新 Google Chrome 後，重新建置並替換 Claude Chrome 即可更新核心。
 
 本倉庫只發布源碼及建置說明，不提供未經 notarization 的二進位 release。請自行建置，再將 App 移至 `/Applications`。
 
@@ -31,9 +33,9 @@ App 會輸出至 `dist/Claude Chrome.app`，以 ad hoc 簽署供本機使用。�
 
 ## 啟動方式
 
-Claude Chrome 會在有網址列及分頁的標準 Chrome 視窗開啟內置環境檢查頁。按 `⌘L` 輸入網址、`⌘N` 新增視窗、`⌘T` 新增分頁；再次開啟 Claude Chrome 會在同一專用瀏覽器程序新增檢查頁視窗。
+Claude Chrome 會在有網址列及分頁的獨立瀏覽器視窗開啟內置環境檢查頁。按 `⌘L` 輸入網址、`⌘N` 新增視窗、`⌘T` 新增分頁。啟動保護程序在背景執行，瀏覽器提供唯一的 Claude Chrome Dock 圖示；退出後再開該圖示會重新執行啟動保護。
 
-專用 profile 關閉 Google 瀏覽器登入、同步及網址列的 AI Mode 按鈕。Chrome 原生新增視窗及分頁指令會使用內建的新分頁頁面；環境檢查控制首頁的繼續按鈕，網址列可直接前往其他網站。可在 Chrome「設定 → 搜尋引擎」選擇 Google 或 DuckDuckGo；啟動器會保留這項選擇。
+專用 profile 關閉 Google 瀏覽器登入、同步及網址列的 AI Mode 按鈕。Chrome 原生新增視窗及分頁指令會使用所選搜尋引擎的新分頁頁面；環境檢查控制首頁的繼續按鈕，網址列可直接前往其他網站。可在 Chrome「設定 → 搜尋引擎」選擇 Google 或 DuckDuckGo；啟動器會保留這項選擇。
 
 獨立 profile 位於 `~/Library/Application Support/Claude Chrome/Profile`；如已有舊 profile `~/.local/share/claude-network-guard/chrome-login-profile`，App 會沿用它。Profile 必須是權限 `0700` 的真實目錄，不能是 symlink。
 
@@ -46,7 +48,7 @@ Claude Chrome 會在有網址列及分頁的標準 Chrome 視窗開啟內置環�
 
 啟動器使用 `curl -q`、明確指定 loopback 代理及空白 `--noproxy`，避免沿用代理繞過設定。它會向 ipwho.is 取得出口 IP、國家及 IANA 時區，再以 `TZ=<IANA timezone>` 啟動專用 Chrome process。這不會改變 macOS 時區或其他 Chrome profile。
 
-同一次 App 存活期間，Claude Chrome 會保留自己啟動的 Chrome process、所用時區及語言。再次開啟只會重用仍在運行、屬於此 App，且受保護 flags、已記錄時區及語言均吻合的 process。正常結束 Claude Chrome 會關閉其專用 Chrome；如 App 異常結束，留下的 Chrome 會視為未受管理，必須完全結束該視窗後再開啟 Claude Chrome。
+同一次 App 存活期間，啟動保護程序會保留自己啟動的瀏覽器 process、所用時區及語言，並拒絕不屬於自己的既有 profile process。結束瀏覽器會同時結束背景保護程序；如保護程序異常結束，留下的瀏覽器會視為未受管理，必須完全結束該視窗後再開啟 Claude Chrome。
 
 啟動器會用 macOS Foundation 與 ICU likely-subtags，按出口國家推導主要 locale。例如日本為 `ja-JP`、`ja`，美國為 `en-US`、`en`，台灣為 `zh-Hant-TW`、`zh-Hant`，新加坡為 `en-SG`、`en`；多語國家採系統 locale 資料的預設主要語言。出口國家或語言改變時必須冷啟動。
 

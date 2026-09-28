@@ -4,12 +4,12 @@
 
 [繁體中文](README.zh-Hant.md)
 
-Claude Chrome 1.1.0 is a small native macOS launcher for a dedicated Google Chrome profile and fixed local HTTP proxy. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
+Claude Chrome 1.2.0 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
 
 ## Requirements
 
 - Apple silicon Mac running macOS 13 or later
-- Google Chrome installed in `/Applications`
+- Google Chrome installed in `/Applications` when building
 - An HTTP proxy listening on `127.0.0.1:17897`
 - Command Line Tools with `swiftc`
 
@@ -21,7 +21,9 @@ Build from source:
 ./scripts/build.sh
 ```
 
-The app is written to `dist/Claude Chrome.app`. The build is ad hoc signed for local use and retains at most one previous build as `dist/Claude Chrome.app.latest-backup`.
+The app is written to `dist/Claude Chrome.app`. The build includes the locally installed Chrome engine and is ad hoc signed for local use. On APFS it clones the engine to share file data. It retains at most one previous build as `dist/Claude Chrome.app.latest-backup`.
+
+The bundled engine is a snapshot of the installed Chrome version. To update it, update Google Chrome, rebuild Claude Chrome, and replace the app.
 
 This repository distributes source and build instructions. It does not publish an unnotarized binary release. Install the locally built app by moving it to `/Applications`.
 
@@ -31,9 +33,9 @@ Copy `dist/Claude Chrome.app` into `/Applications`, then open it.
 
 ## Launch behavior
 
-Claude Chrome opens the bundled environment-check page in a standard Chrome window with an address bar and tabs. Use `⌘L` to enter a URL, `⌘N` for a new window, and `⌘T` for a new tab. Opening Claude Chrome again creates another check-page window in the same dedicated browser process.
+Claude Chrome opens the bundled environment-check page in its own browser window with an address bar and tabs. Use `⌘L` to enter a URL, `⌘N` for a new window, and `⌘T` for a new tab. The launch guard runs in the background; the browser provides the single Claude Chrome Dock icon. Opening that icon after quitting starts the launch guard again.
 
-The dedicated profile disables Google browser sign-in, sync, and the AI Mode address-bar button. Chrome's native new-window and new-tab commands use its built-in new-tab page; the checks govern the start page's Continue button, while the address bar supports direct navigation. Choose Google or DuckDuckGo in Chrome Settings → Search engine; the launcher preserves your search engine choice.
+The dedicated profile disables Google browser sign-in, sync, and the AI Mode address-bar button. Chrome's native new-window and new-tab commands use the selected search engine's new-tab page; the checks govern the start page's Continue button, while the address bar supports direct navigation. Choose Google or DuckDuckGo in Chrome Settings → Search engine; the launcher preserves your search engine choice.
 
 The dedicated profile is stored at `~/Library/Application Support/Claude Chrome/Profile`. A legacy profile at `~/.local/share/claude-network-guard/chrome-login-profile` is reused when present. Profile directories must be real directories with mode `0700`.
 
@@ -46,7 +48,7 @@ The launcher treats this as an offline browser profile: it disables Chrome's Goo
 
 The launcher uses `curl -q` with the explicit loopback proxy and an empty `--noproxy` value, so proxy bypass settings are not inherited. It obtains the exit IP, country, and IANA timezone from ipwho.is, then starts the dedicated Chrome process with `TZ=<IANA timezone>`. This changes neither the macOS timezone nor other Chrome profiles.
 
-For one app lifetime, Claude Chrome retains the Chrome process, timezone, and language it started. Reopening the app reuses only that still-running, app-owned process after its guarded flags and recorded timezone and language match. Quitting Claude Chrome normally closes its dedicated Chrome process. If the app exits unexpectedly, the remaining Chrome process is unmanaged: fully quit that window before reopening Claude Chrome.
+For one app lifetime, the launch guard retains the browser process, timezone, and language it started. It rejects an existing profile process it does not own. Quitting the browser also ends the background guard. If the guard exits unexpectedly, the remaining browser process is unmanaged: fully quit that window before reopening Claude Chrome.
 
 The launcher derives a primary locale from the exit country using macOS Foundation and ICU likely-subtags. Examples are Japan `ja-JP`, `ja`; United States `en-US`, `en`; Taiwan `zh-Hant-TW`, `zh-Hant`; and Singapore `en-SG`, `en`. Multi-language countries use the system locale data's default primary language. A country or language change requires a cold launch.
 

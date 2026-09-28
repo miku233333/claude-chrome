@@ -4,58 +4,31 @@ import Foundation
 import Network
 
 private let appName = "Claude Chrome"
-private let chromeBinary = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+private let applicationURL = Bundle.main.bundleURL
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+private let chromeBinary = applicationURL
+    .appendingPathComponent("Contents/MacOS/Google Chrome").path
 private let defaultProxyURL = "http://127.0.0.1:17897"
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject {
     private lazy var profileURL = resolveProfileURL()
     private lazy var proxyURL = resolveProxyURL()
     private var launchPending = false
     private var browserProcess: Process?
     private var browserTimeZone: String?
     private var browserLanguages: [String]?
+    fileprivate var keepRunning = true
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        configureMenu()
+    func start() {
         openLoginBrowser()
-    }
-
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        openLoginBrowser()
-        return false
-    }
-
-    func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        sender.reply(toOpenOrPrint: .failure)
-    }
-
-    func application(_ application: NSApplication, open urls: [URL]) {}
-
-    func applicationWillTerminate(_ notification: Notification) {
-        if let browserProcess, browserProcess.isRunning {
-            browserProcess.terminate()
-        }
-    }
-
-    private func configureMenu() {
-        let mainMenu = NSMenu()
-        let appMenuItem = NSMenuItem()
-        mainMenu.addItem(appMenuItem)
-
-        let appMenu = NSMenu(title: appName)
-        appMenu.addItem(
-            withTitle: "結束 \(appName)",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
-        appMenuItem.submenu = appMenu
-        NSApp.mainMenu = mainMenu
     }
 
     private func openLoginBrowser() {
         guard !launchPending else { return }
         guard FileManager.default.isExecutableFile(atPath: chromeBinary) else {
-            showError("找不到 Google Chrome。")
+            showError("找不到內置瀏覽器核心，請重新建置 Claude Chrome。")
             return
         }
         guard let profileURL, let proxyURL else { return }
@@ -64,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showError("本機代理未啟動。")
             return
         }
-        guard let startPage = Bundle.main.url(forResource: "Start", withExtension: "html") else {
+        guard let startPage = Bundle(url: applicationURL)?.url(forResource: "Start", withExtension: "html") else {
             showError("找不到環境檢查頁。")
             return
         }
@@ -86,7 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     URLQueryItem(name: "assessment", value: encodedAssessment),
                 ]
                 page.percentEncodedFragment = parameters.percentEncodedQuery
-                guard let pageURL = page.url else { return }
+                guard let pageURL = page.url else {
+                    self.showError("無法建立環境檢查頁網址。")
+                    return
+                }
                 let languages = assessment.languages
                 let arguments = self.browserArguments(profileURL: profileURL, proxyURL: proxyURL, pageURL: pageURL, language: languages[0])
                 guard let mode = self.profileLaunchMode(
@@ -115,6 +91,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        if mode == .cold {
+            process.terminationHandler = { [weak self] terminatedProcess in
+                DispatchQueue.main.async {
+                    guard let self, self.browserProcess === terminatedProcess else { return }
+                    self.browserProcess = nil
+                    self.browserTimeZone = nil
+                    self.browserLanguages = nil
+                    self.keepRunning = false
+                }
+            }
+        }
 
         do {
             try process.run()
@@ -122,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 browserProcess = process
                 browserTimeZone = timeZone.identifier
                 browserLanguages = languages
+            } else {
+                keepRunning = false
             }
         } catch {
             showError("登入瀏覽器暫時無法開啟。")
@@ -507,22 +496,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showError(_ message: String) {
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "無法開啟 \(appName)"
         alert.informativeText = message
         alert.addButton(withTitle: "好")
         alert.runModal()
+        keepRunning = false
     }
 }
 
 @main
 enum Launcher {
     static func main() {
-        let application = NSApplication.shared
-        let delegate = AppDelegate()
-        application.setActivationPolicy(.regular)
-        application.delegate = delegate
-        application.run()
+        let launcher = AppDelegate()
+        launcher.start()
+        while launcher.keepRunning {
+            if !RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
     }
 }
