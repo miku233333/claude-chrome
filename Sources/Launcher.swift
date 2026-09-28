@@ -10,6 +10,10 @@ private let defaultProxyURL = "http://127.0.0.1:17897"
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var profileURL = resolveProfileURL()
     private lazy var proxyURL = resolveProxyURL()
+    private var launchPending = false
+    private var browserProcess: Process?
+    private var browserTimeZone: String?
+    private var browserLanguages: [String]?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
@@ -27,6 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {}
 
+    func applicationWillTerminate(_ notification: Notification) {
+        if let browserProcess, browserProcess.isRunning {
+            browserProcess.terminate()
+        }
+    }
+
     private func configureMenu() {
         let mainMenu = NSMenu()
         let appMenuItem = NSMenuItem()
@@ -43,39 +53,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openLoginBrowser() {
+        guard !launchPending else { return }
         guard FileManager.default.isExecutableFile(atPath: chromeBinary) else {
             showError("找不到 Google Chrome。")
             return
         }
         guard let profileURL, let proxyURL else { return }
 
-        let arguments = browserArguments(profileURL: profileURL, proxyURL: proxyURL)
         guard proxyIsListening(proxyURL) else {
             showError("本機代理未啟動。")
             return
         }
-        guard mayUseProfile(profileURL, expectedArguments: arguments) else { return }
+        guard let startPage = Bundle.main.url(forResource: "Start", withExtension: "html") else {
+            showError("找不到環境檢查頁。")
+            return
+        }
 
+        launchPending = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let assessment = ExitAssessment.lookup(proxyURL: proxyURL, profileURL: profileURL)
+            DispatchQueue.main.async {
+                self.launchPending = false
+                guard let assessment, let encodedAssessment = assessment.encodedPageData else {
+                    self.showError("無法確認出口 IP 的時區，請檢查本機代理後重試。")
+                    return
+                }
+                let timeZone = assessment.timeZone
+                var page = URLComponents(url: startPage, resolvingAgainstBaseURL: false)!
+                var parameters = URLComponents()
+                parameters.queryItems = [
+                    URLQueryItem(name: "timezone", value: timeZone.identifier),
+                    URLQueryItem(name: "assessment", value: encodedAssessment),
+                ]
+                page.percentEncodedFragment = parameters.percentEncodedQuery
+                guard let pageURL = page.url else { return }
+                let languages = assessment.languages
+                let arguments = self.browserArguments(profileURL: profileURL, proxyURL: proxyURL, pageURL: pageURL, language: languages[0])
+                guard let mode = self.profileLaunchMode(profileURL, expectedArguments: arguments, timeZone: timeZone, languages: languages) else { return }
+                self.launchBrowser(arguments: arguments, timeZone: timeZone, languages: languages, mode: mode)
+            }
+        }
+    }
+
+    private enum BrowserLaunchMode {
+        case cold
+        case reuse
+    }
+
+    private func launchBrowser(arguments: [String], timeZone: TimeZone, languages: [String], mode: BrowserLaunchMode) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: chromeBinary)
         process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["TZ"] = timeZone.identifier
+        process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
+            if mode == .cold {
+                browserProcess = process
+                browserTimeZone = timeZone.identifier
+                browserLanguages = languages
+            }
         } catch {
             showError("登入瀏覽器暫時無法開啟。")
         }
     }
 
-    private func browserArguments(profileURL: URL, proxyURL: String) -> [String] {
+    private func browserArguments(profileURL: URL, proxyURL: String, pageURL: URL, language: String) -> [String] {
         [
             "--user-data-dir=\(profileURL.path)",
             "--proxy-server=\(proxyURL)",
             "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+            "--disable-sync",
+            "--lang=\(language)",
             "--no-first-run",
             "--no-default-browser-check",
+            "--app=\(pageURL.absoluteString)",
         ]
     }
 
@@ -182,13 +238,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func mayUseProfile(_ profileURL: URL, expectedArguments: [String]) -> Bool {
+    private func profileLaunchMode(_ profileURL: URL, expectedArguments: [String], timeZone: TimeZone, languages: [String]) -> BrowserLaunchMode? {
         let lockPath = profileURL.appendingPathComponent("SingletonLock").path
         var fileStatus = stat()
         if Darwin.lstat(lockPath, &fileStatus) != 0 {
-            if errno == ENOENT { return true }
+            if errno == ENOENT {
+                guard browserProcess?.isRunning != true else {
+                    showError("Claude Chrome 正在啟動，請稍後重試。")
+                    return nil
+                }
+                return configureProfile(profileURL, languages: languages) ? .cold : nil
+            }
             showError("登入瀏覽器狀態無法確認。")
-            return false
+            return nil
         }
 
         guard (fileStatus.st_mode & S_IFMT) == S_IFLNK,
@@ -196,29 +258,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let pid = trailingPID(in: target)
         else {
             showError("登入瀏覽器正由其他啟動方式使用。")
-            return false
+            return nil
         }
 
-        guard processIsAlive(pid) else { return true }
-        guard let invocation = processInvocation(for: pid),
+        guard processIsAlive(pid) else {
+            guard browserProcess?.isRunning != true else {
+                showError("Claude Chrome 的啟動狀態無法確認，請完全結束後重試。")
+                return nil
+            }
+            return configureProfile(profileURL, languages: languages) ? .cold : nil
+        }
+        guard let browserProcess,
+              browserProcess.isRunning,
+              browserProcess.processIdentifier == pid,
+              browserTimeZone == timeZone.identifier,
+              browserLanguages == languages,
+              let invocation = processInvocation(for: pid),
               invocation.executable == chromeBinary,
               invocation.arguments.first == chromeBinary,
-              expectedArguments.allSatisfy({ expected in
+              expectedArguments.filter({ !$0.hasPrefix("--app=") }).allSatisfy({ expected in
                   invocation.arguments.filter({ $0 == expected }).count == 1
               }),
+              invocation.arguments.filter({ $0.hasPrefix("--app=") }).count == 1,
               invocation.arguments.dropFirst().allSatisfy({ argument in
                   let isGuarded = argument.hasPrefix("--proxy-") ||
                       argument.hasPrefix("--no-proxy-server") ||
                       argument.hasPrefix("--user-data-dir") ||
-                      argument.hasPrefix("--webrtc-ip-handling-policy")
+                      argument.hasPrefix("--webrtc-ip-handling-policy") ||
+                      argument.hasPrefix("--app") ||
+                      argument.hasPrefix("--lang") ||
+                      argument.hasPrefix("--disable-sync")
+                  if argument.hasPrefix("--app=") {
+                      return expectedArguments.contains { expected in
+                          expected.hasPrefix("--app=") && argument.split(separator: "#", maxSplits: 1).first == expected.split(separator: "#", maxSplits: 1).first
+                      }
+                  }
                   return !isGuarded || expectedArguments.contains(argument)
               })
         else {
-            showError("登入瀏覽器正由其他啟動方式使用。")
-            return false
+            showError("請先完全結束 Claude Chrome 的瀏覽器，再重新開啟以套用出口時區、語言及設定。")
+            return nil
         }
 
-        return true
+        return .reuse
+    }
+
+    private func configureProfile(_ profileURL: URL, languages: [String]) -> Bool {
+        let directory = profileURL.appendingPathComponent("Default", isDirectory: true)
+        let preferencesURL = directory.appendingPathComponent("Preferences")
+        do {
+            if pathState(at: directory.path) == .missing {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            }
+            guard validateProfileDirectory(directory) else { return false }
+            var preferences: [String: Any] = [:]
+            var originalData: Data?
+            if pathState(at: preferencesURL.path) != .missing {
+                var status = stat()
+                guard Darwin.lstat(preferencesURL.path, &status) == 0,
+                      (status.st_mode & S_IFMT) == S_IFREG,
+                      status.st_size <= 4_194_304
+                else { throw CocoaError(.fileReadNoPermission) }
+                let data = try Data(contentsOf: preferencesURL)
+                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                preferences = object
+                originalData = data
+            }
+            var updated = preferences
+            var signin = updated["signin"] as? [String: Any] ?? [:]
+            signin["allowed"] = false
+            signin["allowed_on_next_startup"] = false
+            updated["signin"] = signin
+            var international = updated["intl"] as? [String: Any] ?? [:]
+            international["accept_languages"] = languages.joined(separator: ",")
+            international["selected_languages"] = languages.joined(separator: ",")
+            updated["intl"] = international
+            var promo = updated["sync_promo"] as? [String: Any] ?? [:]
+            promo["show_on_first_run_allowed"] = false
+            promo["show_ntp_bubble"] = false
+            updated["sync_promo"] = promo
+            if NSDictionary(dictionary: preferences).isEqual(to: updated) { return true }
+            if let originalData {
+                let backup = profileURL.appendingPathComponent("Claude Chrome Preferences.latest-backup")
+                if pathState(at: backup.path) != .missing {
+                    var status = stat()
+                    guard Darwin.lstat(backup.path, &status) == 0, (status.st_mode & S_IFMT) == S_IFREG else {
+                        throw CocoaError(.fileWriteNoPermission)
+                    }
+                }
+                try originalData.write(to: backup, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+            }
+            let data = try JSONSerialization.data(withJSONObject: updated, options: .sortedKeys)
+            try data.write(to: preferencesURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: preferencesURL.path)
+            return true
+        } catch {
+            showError("無法更新 Claude Chrome 的語言及登入設定。")
+            return false
+        }
     }
 
     private func proxyIsListening(_ value: String) -> Bool {
@@ -339,8 +479,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-let application = NSApplication.shared
-let delegate = AppDelegate()
-application.setActivationPolicy(.regular)
-application.delegate = delegate
-application.run()
+@main
+enum Launcher {
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = AppDelegate()
+        application.setActivationPolicy(.regular)
+        application.delegate = delegate
+        application.run()
+    }
+}

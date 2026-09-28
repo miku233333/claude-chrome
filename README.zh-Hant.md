@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-Claude Chrome 是輕量原生 macOS 啟動器，使用獨立 Chrome profile 及固定本機 HTTP 代理，避免讀寫日常 Chrome profile。
+Claude Chrome 1.1.0 是輕量原生 macOS 啟動器，使用獨立 Google Chrome profile 及固定本機 HTTP 代理。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
@@ -29,15 +29,40 @@ App 會輸出至 `dist/Claude Chrome.app`，以 ad hoc 簽署供本機使用。�
 
 將 `dist/Claude Chrome.app` 複製到 `/Applications`，然後開啟。
 
-## 使用
+## 啟動方式
 
-開啟 `Claude Chrome.app` 後，Chrome 會使用：
+Claude Chrome 會直接以 `--app=<內置 file: 首頁>` 啟動 Chrome，在沒有 Google 首頁、瀏覽器工具列或 AI Mode omnibox 入口的簡潔 app 視窗執行本機環境檢查。
 
-- `~/Library/Application Support/Claude Chrome/Profile` 的獨立 profile；
-- `http://127.0.0.1:17897` 本機代理；
-- 停用未經代理的 WebRTC UDP。
+獨立 profile 位於 `~/Library/Application Support/Claude Chrome/Profile`；如已有舊 profile `~/.local/share/claude-network-guard/chrome-login-profile`，App 會沿用它。Profile 必須是權限 `0700` 的真實目錄，不能是 symlink。
 
-如果舊 profile `~/.local/share/claude-network-guard/chrome-login-profile` 已存在，App 會沿用它。Profile 必須是權限 `0700` 的真實目錄，不能是 symlink。
+啟動器把它設為離線瀏覽器 profile：關閉 Chrome 的 Google 登入偏好，並以 `--disable-sync` 啟動。通過檢查後仍可另行登入 Claude 網站，兩者互不相干。Chrome 使用：
+
+- `--proxy-server=http://127.0.0.1:17897`；
+- `--webrtc-ip-handling-policy=disable_non_proxied_udp`；
+- `--lang=<出口主要 locale>`，profile 的 selected 與 accepted languages 會按出口國家設定；
+- `--app=<本機環境檢查頁>`。
+
+啟動器使用 `curl -q`、明確指定 loopback 代理及空白 `--noproxy`，避免沿用代理繞過設定。它會向 ipwho.is 取得出口 IP、國家及 IANA 時區，再以 `TZ=<IANA timezone>` 啟動專用 Chrome process。這不會改變 macOS 時區或其他 Chrome profile。
+
+同一次 App 存活期間，Claude Chrome 會保留自己啟動的 Chrome process、所用時區及語言。再次開啟只會重用仍在運行、屬於此 App，且受保護 flags、已記錄時區及語言均吻合的 process。正常結束 Claude Chrome 會關閉其專用 Chrome；如 App 異常結束，留下的 Chrome 會視為未受管理，必須完全結束該視窗後再開啟 Claude Chrome。
+
+啟動器會用 macOS Foundation 與 ICU likely-subtags，按出口國家推導主要 locale。例如日本為 `ja-JP`、`ja`，美國為 `en-US`、`en`，台灣為 `zh-Hant-TW`、`zh-Hant`，新加坡為 `en-SG`、`en`；多語國家採系統 locale 資料的預設主要語言。出口國家或語言改變時必須冷啟動。
+
+## 環境檢查
+
+本機首頁所有檢查通過後，繼續按鈕才會開啟 `https://claude.ai`。任何失敗或未知結果都會鎖定按鈕；按下繼續時會先重新執行即時網絡檢查。
+
+- **出口及地區：** Cloudflare Trace 及 ipwho.is 的最新結果必須有相同公網 IP 及國家，並符合 native 啟動評估。`Resources/SupportedRegions.js` 收錄 [Anthropic 支援國家頁](https://www.anthropic.com/supported-countries) 於 `2026-09-29` 的 185 個 Claude.ai 國家快照。出口位於烏克蘭時，Crimea、Donetsk、Kherson、Luhansk 或 Zaporizhzhia 分區會被排除；缺少分區資料則為未知。
+- **時區及時鐘：** 出口時區與 UTC offset 必須同時符合主頁及 Blob Worker 即時回讀的 `Intl`／`Date` 結果。
+- **IP 信譽：** native 評估會無 API key 查詢 ProxyCheck v3，並要求 `hosting`、`proxy`、`vpn`、`tor`、`compromised`、`scraper`、`anonymous` 七項風險布林值齊全；任一為 true 或風險值高於 25 都會失敗。有效結果按相同出口 IP 儲存在專用 profile 的私人快取最多 30 分鐘，出口改變或快取過期時重新查詢。匿名服務限制為[每日 100 次查詢](https://proxycheck.io/api/)。
+- **WebRTC：** Cloudflare STUN 觀察必須完成，並且沒有私人位址、未經代理的 UDP 位址或與 HTTPS 出口不同的公網位址。
+- **語言及瀏覽器基線：** native 的出口語言及有序語言清單必須符合最新出口國家，並與 `navigator.language`／`navigator.languages` 一致；同時核對 `navigator.webdriver`、macOS Chrome user agent 與 platform、畫面及處理器資料、可重複的本機 Canvas 結果及 WebGL renderer。
+
+這是本專案採用的保守 App 門檻，並非 Anthropic 官方規則、個別 IP 白名單、帳戶資格判斷或防封禁保證。上游回應無法取得、格式錯誤、互相矛盾、過期或超出限額時，結果會標為未知並保持鎖定。
+
+### 私隱
+
+Cloudflare Trace、ipwho.is 及 ProxyCheck 會收到檢查所需的出口 IP；Cloudflare STUN 服務可觀察 WebRTC 請求。瀏覽器指紋值及 Canvas 摘要只在本機評估，本 App 不會外送。Native 評估快照會放入本機 `file:` URL fragment，因此可留在此 profile 的本機瀏覽紀錄，亦會儲存在私人 profile 快取。
 
 ### 本機代理設定
 
@@ -49,12 +74,12 @@ App 會輸出至 `dist/Claude Chrome.app`，以 ad hoc 簽署供本機使用。�
 }
 ```
 
-只接受 `http` 或 `https`、主機為 `localhost`、`127.0.0.1` 或 `::1`，並明確包含連接埠的網址。不支援帳號密碼、URL 路徑、PAC 或直連繞過設定。
+`config.json` 只接受 `proxyURL`。網址必須是 `http` 或 `https`，主機為 `localhost`、`127.0.0.1` 或 `::1`，並明確包含連接埠。不支援帳號密碼、URL 路徑、PAC 或直連繞過設定，亦不需要 API key。
 
 ## 安全範圍
 
-本 App 是 Chrome 私隱輔助工具，並非作業系統層級的網絡 kill switch。它不會修改 macOS 網絡設定，也不能保護經其他方式啟動的 Chrome。使用前必須先啟動本機代理。
+本 App 是 Chrome 私隱輔助工具，並非作業系統層級的網絡 kill switch。它不會修改 macOS 網絡設定，且只套用至經此啟動器開啟的 Chrome；使用前必須先啟動本機代理。
 
-本 App 不保證帳戶可用性，亦不能保證避免服務限制或封禁。Claude Chrome 是獨立專案，與 Anthropic 或 Google 沒有從屬、認可或支援關係。
+Claude Chrome 是獨立專案，與 Anthropic 或 Google 沒有從屬、認可或支援關係。
 
 本專案以 MIT License 發布。

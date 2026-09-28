@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; worker-src blob:; img-src 'self' data:; connect-src https://www.cloudflare.com https://ipwho.is; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+  <title>Claude 環境檢查</title>
+  <link rel="stylesheet" href="Start.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <img class="logo" src="Logo.png" alt="Claude Chrome">
+      <div>
+        <p class="eyebrow">CLAUDE CHROME</p>
+        <h1>Claude 環境檢查</h1>
+        <p class="intro">確認目前瀏覽器環境，再前往 Claude。</p>
+      </div>
+    </header>
+
+    <section class="summary" aria-live="polite">
+      <span id="overall-dot" class="summary-dot" aria-hidden="true"></span>
+      <div>
+        <p id="overall-title" class="summary-title">正在檢查</p>
+        <p id="overall-detail" class="summary-detail">請稍候完成所有必要檢查。</p>
+      </div>
+    </section>
+
+    <section class="checks" aria-label="環境狀態">
+      <article class="check-row" id="network-row" data-state="checking">
+        <div>
+          <h2>網絡出口</h2>
+          <p id="network-detail">正在讀取出口資料…</p>
+        </div>
+        <span id="network-status" class="status">檢查中</span>
+      </article>
+
+      <article class="check-row" id="reputation-row" data-state="checking">
+        <div>
+          <h2>IP 信譽</h2>
+          <p id="reputation-detail">正在確認可用的信譽資料…</p>
+        </div>
+        <span id="reputation-status" class="status">檢查中</span>
+      </article>
+
+      <article class="check-row" id="timezone-row" data-state="checking">
+        <div>
+          <h2>出口與瀏覽器時區</h2>
+          <p id="timezone-detail">正在比對出口與瀏覽器時區…</p>
+        </div>
+        <span id="timezone-status" class="status">檢查中</span>
+      </article>
+
+      <article class="check-row" id="webrtc-row" data-state="checking">
+        <div>
+          <h2>WebRTC</h2>
+          <p id="webrtc-detail">正在觀察網絡候選位址…</p>
+        </div>
+        <span id="webrtc-status" class="status">檢查中</span>
+      </article>
+
+      <article class="check-row" id="language-row" data-state="checking">
+        <div>
+          <h2>出口與瀏覽器語言</h2>
+          <p id="language-detail">正在比對出口與瀏覽器語言…</p>
+        </div>
+        <span id="language-status" class="status">檢查中</span>
+      </article>
+
+      <article class="check-row" id="fingerprint-row" data-state="checking">
+        <div>
+          <h2>瀏覽器一致性</h2>
+          <p id="fingerprint-detail">正在檢查瀏覽器環境…</p>
+        </div>
+        <span id="fingerprint-status" class="status">檢查中</span>
+      </article>
+    </section>
+
+    <div class="actions">
+      <button id="continue-button" class="primary" type="button" disabled>前往 Claude</button>
+      <button id="retry-button" class="secondary" type="button">重新檢查</button>
+    </div>
+
+    <p class="notice">出口查詢使用 Cloudflare、ipwho.is 及 ProxyCheck；瀏覽器特徵只在本機比對。結果不能保證帳戶安全、IP 信譽或服務可用性。</p>
+  </main>
+  <script src="SupportedRegions.js" defer></script>
+  <script src="Start.js" defer></script>
+</body>
+</html>

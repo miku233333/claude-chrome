@@ -24,9 +24,11 @@ fi
 
 /bin/mkdir -p "$DIST_DIR" "$STAGING_APP/Contents/MacOS" "$STAGING_APP/Contents/Resources" "$ICONSET_DIR"
 /bin/cp "$RESOURCE_DIR/Info.plist" "$STAGING_APP/Contents/Info.plist"
+/bin/cp "$RESOURCE_DIR/Start.html" "$RESOURCE_DIR/Start.css" "$RESOURCE_DIR/Start.js" \
+  "$RESOURCE_DIR/SupportedRegions.js" "$LOGO_PATH" "$STAGING_APP/Contents/Resources/"
 
 /usr/bin/swiftc -O -target arm64-apple-macos13.0 -framework AppKit \
-  "$SOURCE_DIR/Launcher.swift" \
+  "$SOURCE_DIR/Launcher.swift" "$SOURCE_DIR/ExitAssessment.swift" \
   -o "$STAGING_APP/Contents/MacOS/Claude Chrome"
 
 /usr/bin/swiftc -O -target arm64-apple-macos13.0 -framework AppKit \
