@@ -77,6 +77,15 @@
       </article>
     </section>
 
+    <label id="risk-acceptance" class="risk-acceptance" hidden>
+      <input id="risk-acceptance-checkbox" type="checkbox" autocomplete="off">
+      <span>
+        <strong>我已知風險，繼續</strong>
+        <small>只接受目前機房 IP 風險；其餘檢查仍須通過。</small>
+        <small id="risk-acceptance-status" class="risk-acceptance-status" aria-live="polite"></small>
+      </span>
+    </label>
+
     <div class="actions">
       <button id="continue-button" class="primary" type="button" disabled>前往 Claude</button>
       <button id="retry-button" class="secondary" type="button">重新檢查</button>

@@ -14,6 +14,9 @@
     overallDetail: document.getElementById("overall-detail"),
     continueButton: document.getElementById("continue-button"),
     retryButton: document.getElementById("retry-button"),
+    riskAcceptance: document.getElementById("risk-acceptance"),
+    riskAcceptanceCheckbox: document.getElementById("risk-acceptance-checkbox"),
+    riskAcceptanceStatus: document.getElementById("risk-acceptance-status"),
     network: rowElements("network"),
     reputation: rowElements("reputation"),
     timezone: rowElements("timezone"),
@@ -27,6 +30,8 @@
   let peerConnection = null;
   let scheduledCheck = null;
   let networkCache = null;
+  let acceptedRiskKey = null;
+  let lastEvaluation = null;
 
   function rowElements(name) {
     return {
@@ -54,6 +59,7 @@
     setRow(elements.fingerprint, "checking", "檢查中", "正在檢查瀏覽器環境…");
     elements.continueButton.disabled = true;
     elements.retryButton.disabled = true;
+    elements.riskAcceptanceCheckbox.disabled = true;
   }
 
   function parseTrace(body) {
@@ -409,11 +415,28 @@
     };
     const detected = booleanKeys.filter((key) => detections[key] === true);
     const acceptable = detected.length === 0 && detections.risk <= 25;
+    const overrideEligible = detections.hosting === true
+      && booleanKeys.filter((key) => key !== "hosting").every((key) => detections[key] === false);
+    const snapshotKey = JSON.stringify({
+      schema: assessment.schema,
+      ip: assessmentIP,
+      countryCode,
+      timeZone,
+      checkedAt: assessment.checkedAt,
+      networkType: assessment.networkType,
+      provider: assessment.provider,
+      detections: booleanKeys.reduce((values, key) => {
+        values[key] = detections[key];
+        return values;
+      }, { risk: detections.risk, confidence: detections.confidence }),
+    });
     const failureReason = detected.length > 0
       ? detected.map((key) => detectionLabels[key]).join("、")
       : "超出保守門檻";
     return {
       state: acceptable ? "pass" : "fail",
+      overrideEligible: !acceptable && overrideEligible,
+      snapshotKey,
       detail: acceptable
         ? `未觀察到所列風險・ProxyCheck 風險值 ${detections.risk}/100`
         : `${failureReason}・ProxyCheck 風險值 ${detections.risk}/100`,
@@ -633,6 +656,49 @@
     setRow(target, result.state, label, result.detail);
   }
 
+  function configureRiskAcceptance(reputation) {
+    if (reputation.overrideEligible !== true || typeof reputation.snapshotKey !== "string") {
+      acceptedRiskKey = null;
+      elements.riskAcceptance.hidden = true;
+      elements.riskAcceptanceCheckbox.checked = false;
+      elements.riskAcceptanceCheckbox.disabled = true;
+      elements.riskAcceptanceStatus.textContent = "";
+      return false;
+    }
+
+    if (acceptedRiskKey !== reputation.snapshotKey) {
+      acceptedRiskKey = null;
+      elements.riskAcceptanceCheckbox.checked = false;
+    }
+    elements.riskAcceptance.hidden = false;
+    elements.riskAcceptanceCheckbox.disabled = false;
+    const accepted = elements.riskAcceptanceCheckbox.checked
+      && acceptedRiskKey === reputation.snapshotKey;
+    elements.riskAcceptanceStatus.textContent = accepted ? "已接受目前機房 IP 風險" : "";
+    return accepted;
+  }
+
+  function updateOverall(evaluation, navigate = false) {
+    const { network, reputation, timezone, webrtc, language, fingerprint, token } = evaluation;
+    const riskAccepted = configureRiskAcceptance(reputation);
+    const required = [network, timezone, webrtc, language, fingerprint];
+    const reputationPassed = reputation.state === "pass" || riskAccepted;
+    const passed = reputationPassed && required.every((result) => result.state === "pass");
+    const unknown = reputation.state === "unknown" || required.some((result) => result.state === "unknown");
+    elements.summary.dataset.state = passed ? "pass" : unknown ? "unknown" : "fail";
+    elements.overallTitle.textContent = passed ? "環境檢查通過" : unknown ? "仍有狀態無法確認" : "環境檢查未通過";
+    elements.overallDetail.textContent = passed
+      ? riskAccepted ? "已接受目前機房 IP 風險；其餘檢查通過。" : "目前可觀察條件符合設定。"
+      : reputation.overrideEligible === true && !riskAccepted
+        ? "請確認目前機房 IP 風險後再繼續。"
+        : "請修正或重新檢查後再繼續。";
+    elements.continueButton.disabled = !passed;
+    elements.retryButton.disabled = false;
+
+    if (passed && navigate && token === generation) window.location.assign("https://claude.ai");
+    return passed;
+  }
+
   async function runChecks(options = {}) {
     const token = ++generation;
     if (fetchController) fetchController.abort();
@@ -672,17 +738,8 @@
     renderResult(elements.language, language);
     renderResult(elements.fingerprint, fingerprint);
 
-    const required = [network, reputation, timezone, webrtc, language, fingerprint];
-    const passed = required.every((result) => result.state === "pass");
-    const unknown = required.some((result) => result.state === "unknown");
-    elements.summary.dataset.state = passed ? "pass" : unknown ? "unknown" : "fail";
-    elements.overallTitle.textContent = passed ? "環境檢查通過" : unknown ? "仍有狀態無法確認" : "環境檢查未通過";
-    elements.overallDetail.textContent = passed ? "目前可觀察條件符合設定。" : "請修正或重新檢查後再繼續。";
-    elements.continueButton.disabled = !passed;
-    elements.retryButton.disabled = false;
-
-    if (passed && options.navigate === true && token === generation) window.location.assign("https://claude.ai");
-    return passed;
+    lastEvaluation = { network, reputation, timezone, webrtc, language, fingerprint, token };
+    return updateOverall(lastEvaluation, options.navigate === true);
   }
 
   function scheduleCheck(delay = 180) {
@@ -692,6 +749,16 @@
 
   elements.retryButton.addEventListener("click", () => runChecks({ forceNetwork: true }));
   elements.continueButton.addEventListener("click", () => runChecks({ navigate: true, forceNetwork: true }));
+  elements.riskAcceptanceCheckbox.addEventListener("change", () => {
+    const reputation = lastEvaluation?.reputation;
+    if (!reputation || reputation.overrideEligible !== true || typeof reputation.snapshotKey !== "string") {
+      acceptedRiskKey = null;
+      elements.riskAcceptanceCheckbox.checked = false;
+      return;
+    }
+    acceptedRiskKey = elements.riskAcceptanceCheckbox.checked ? reputation.snapshotKey : null;
+    updateOverall(lastEvaluation);
+  });
   window.addEventListener("focus", () => scheduleCheck());
   window.addEventListener("online", () => scheduleCheck(0));
   window.addEventListener("offline", () => scheduleCheck(0));

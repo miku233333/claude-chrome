@@ -189,6 +189,59 @@ h1 {
   color: var(--warning);
 }
 
+.risk-acceptance {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--warning);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.risk-acceptance[hidden] {
+  display: none;
+}
+
+.risk-acceptance input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--terracotta);
+}
+
+.risk-acceptance span {
+  display: grid;
+  gap: 4px;
+}
+
+.risk-acceptance strong {
+  font-size: 14px;
+}
+
+.risk-acceptance small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.risk-acceptance-status:not(:empty) {
+  color: var(--terracotta-dark);
+  font-weight: 700;
+}
+
+.risk-acceptance:has(input:focus-visible) {
+  outline: 3px solid rgba(199, 101, 69, 0.28);
+  outline-offset: 2px;
+}
+
+.risk-acceptance:has(input:checked) {
+  border-color: var(--terracotta);
+}
+
 .actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -50,11 +50,11 @@ Claude Chrome 會直接以 `--app=<內置 file: 首頁>` 啟動 Chrome，在沒�
 
 ## 環境檢查
 
-本機首頁所有檢查通過後，繼續按鈕才會開啟 `https://claude.ai`。任何失敗或未知結果都會鎖定按鈕；按下繼續時會先重新執行即時網絡檢查。
+本機首頁所有必要檢查通過後，繼續按鈕才會開啟 `https://claude.ai`。按下繼續時會重新執行出口與信譽檢查；出口、快照或風險改變會清除之前的確認。
 
 - **出口及地區：** Cloudflare Trace 及 ipwho.is 的最新結果必須有相同公網 IP 及國家，並符合 native 啟動評估。`Resources/SupportedRegions.js` 收錄 [Anthropic 支援國家頁](https://www.anthropic.com/supported-countries) 於 `2026-09-29` 的 185 個 Claude.ai 國家快照。出口位於烏克蘭時，Crimea、Donetsk、Kherson、Luhansk 或 Zaporizhzhia 分區會被排除；缺少分區資料則為未知。
 - **時區及時鐘：** 出口時區與 UTC offset 必須同時符合主頁及 Blob Worker 即時回讀的 `Intl`／`Date` 結果。
-- **IP 信譽：** native 評估會無 API key 查詢 ProxyCheck v3，並要求 `hosting`、`proxy`、`vpn`、`tor`、`compromised`、`scraper`、`anonymous` 七項風險布林值齊全；任一為 true 或風險值高於 25 都會失敗。有效結果按相同出口 IP 儲存在專用 profile 的私人快取最多 30 分鐘，出口改變或快取過期時重新查詢。匿名服務限制為[每日 100 次查詢](https://proxycheck.io/api/)。
+- **IP 信譽：** native 評估會無 API key 查詢 ProxyCheck v3，並要求 `hosting`、`proxy`、`vpn`、`tor`、`compromised`、`scraper`、`anonymous` 七項風險布林值齊全。任何風險為 true 或分數高於 25，預設均未通過。只有完整、新鮮且符合當前出口的快照，並且僅 `hosting` 為 true、其餘各項明確為 false 時，才可勾選預設未勾、只在本頁有效的確認。接受機房 IP 與風險分數不會略過地區、出口一致性、WebRTC、時區、語言或瀏覽器基線檢查。資料未知及其他任一風險為 true 時不能確認；快照或風險改變會清除之前的確認。有效結果按相同出口 IP 儲存在專用 profile 的私人快取最多 30 分鐘，出口改變或快取過期時重新查詢。匿名服務限制為[每日 100 次查詢](https://proxycheck.io/api/)。
 - **WebRTC：** Cloudflare STUN 觀察必須完成，並且沒有私人位址、未經代理的 UDP 位址或與 HTTPS 出口不同的公網位址。
 - **語言及瀏覽器基線：** native 的出口語言及有序語言清單必須符合最新出口國家，並與 `navigator.language`／`navigator.languages` 一致；同時核對 `navigator.webdriver`、macOS Chrome user agent 與 platform、畫面及處理器資料、可重複的本機 Canvas 結果及 WebGL renderer。
 
