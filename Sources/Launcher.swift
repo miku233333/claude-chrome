@@ -89,7 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let pageURL = page.url else { return }
                 let languages = assessment.languages
                 let arguments = self.browserArguments(profileURL: profileURL, proxyURL: proxyURL, pageURL: pageURL, language: languages[0])
-                guard let mode = self.profileLaunchMode(profileURL, expectedArguments: arguments, timeZone: timeZone, languages: languages) else { return }
+                guard let mode = self.profileLaunchMode(
+                    profileURL,
+                    expectedArguments: arguments,
+                    homepageURL: pageURL,
+                    timeZone: timeZone,
+                    languages: languages
+                ) else { return }
                 self.launchBrowser(arguments: arguments, timeZone: timeZone, languages: languages, mode: mode)
             }
         }
@@ -131,7 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "--lang=\(language)",
             "--no-first-run",
             "--no-default-browser-check",
-            "--app=\(pageURL.absoluteString)",
+            "--new-window",
+            pageURL.absoluteString,
         ]
     }
 
@@ -238,7 +245,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func profileLaunchMode(_ profileURL: URL, expectedArguments: [String], timeZone: TimeZone, languages: [String]) -> BrowserLaunchMode? {
+    private func profileLaunchMode(
+        _ profileURL: URL,
+        expectedArguments: [String],
+        homepageURL: URL,
+        timeZone: TimeZone,
+        languages: [String]
+    ) -> BrowserLaunchMode? {
         let lockPath = profileURL.appendingPathComponent("SingletonLock").path
         var fileStatus = stat()
         if Darwin.lstat(lockPath, &fileStatus) != 0 {
@@ -268,32 +281,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return configureProfile(profileURL, languages: languages) ? .cold : nil
         }
+        let requiredArguments = Array(expectedArguments.dropLast())
+        guard let expectedHomepage = expectedArguments.last,
+              expectedHomepage == homepageURL.absoluteString,
+              let invocation = processInvocation(for: pid)
+        else {
+            showError("Claude Chrome 的瀏覽器設定無法確認。")
+            return nil
+        }
+        let positionalArguments = invocation.arguments.dropFirst().filter { !$0.hasPrefix("--") }
         guard let browserProcess,
               browserProcess.isRunning,
               browserProcess.processIdentifier == pid,
               browserTimeZone == timeZone.identifier,
               browserLanguages == languages,
-              let invocation = processInvocation(for: pid),
               invocation.executable == chromeBinary,
               invocation.arguments.first == chromeBinary,
-              expectedArguments.filter({ !$0.hasPrefix("--app=") }).allSatisfy({ expected in
+              requiredArguments.allSatisfy({ expected in
                   invocation.arguments.filter({ $0 == expected }).count == 1
               }),
-              invocation.arguments.filter({ $0.hasPrefix("--app=") }).count == 1,
+              invocation.arguments.filter({ $0.hasPrefix("--app") }).isEmpty,
+              positionalArguments.count == 1,
+              let actualHomepage = positionalArguments.first,
+              sameStartPageBase(actualHomepage, homepageURL.absoluteString),
               invocation.arguments.dropFirst().allSatisfy({ argument in
                   let isGuarded = argument.hasPrefix("--proxy-") ||
                       argument.hasPrefix("--no-proxy-server") ||
                       argument.hasPrefix("--user-data-dir") ||
                       argument.hasPrefix("--webrtc-ip-handling-policy") ||
                       argument.hasPrefix("--app") ||
+                      argument.hasPrefix("--new-window") ||
                       argument.hasPrefix("--lang") ||
                       argument.hasPrefix("--disable-sync")
-                  if argument.hasPrefix("--app=") {
-                      return expectedArguments.contains { expected in
-                          expected.hasPrefix("--app=") && argument.split(separator: "#", maxSplits: 1).first == expected.split(separator: "#", maxSplits: 1).first
-                      }
+                  if !argument.hasPrefix("--") {
+                      return sameStartPageBase(argument, homepageURL.absoluteString)
                   }
-                  return !isGuarded || expectedArguments.contains(argument)
+                  return !isGuarded || requiredArguments.contains(argument)
               })
         else {
             showError("請先完全結束 Claude Chrome 的瀏覽器，再重新開啟以套用出口時區、語言及設定。")
@@ -301,6 +324,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return .reuse
+    }
+
+    private func sameStartPageBase(_ actual: String, _ expected: String) -> Bool {
+        guard var actualComponents = URLComponents(string: actual),
+              var expectedComponents = URLComponents(string: expected),
+              actualComponents.scheme == "file",
+              expectedComponents.scheme == "file"
+        else { return false }
+        actualComponents.fragment = nil
+        expectedComponents.fragment = nil
+        return actualComponents.url?.standardizedFileURL == expectedComponents.url?.standardizedFileURL
     }
 
     private func configureProfile(_ profileURL: URL, languages: [String]) -> Bool {
@@ -331,6 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             signin["allowed"] = false
             signin["allowed_on_next_startup"] = false
             updated["signin"] = signin
+            var omnibox = updated["omnibox"] as? [String: Any] ?? [:]
+            omnibox["show_ai_mode_omnibox_button"] = false
+            updated["omnibox"] = omnibox
             var international = updated["intl"] as? [String: Any] ?? [:]
             international["accept_languages"] = languages.joined(separator: ",")
             international["selected_languages"] = languages.joined(separator: ",")

@@ -31,7 +31,9 @@ App 會輸出至 `dist/Claude Chrome.app`，以 ad hoc 簽署供本機使用。�
 
 ## 啟動方式
 
-Claude Chrome 會直接以 `--app=<內置 file: 首頁>` 啟動 Chrome，在沒有 Google 首頁、瀏覽器工具列或 AI Mode omnibox 入口的簡潔 app 視窗執行本機環境檢查。
+Claude Chrome 會在有網址列及分頁的標準 Chrome 視窗開啟內置環境檢查頁。按 `⌘L` 輸入網址、`⌘N` 新增視窗、`⌘T` 新增分頁；再次開啟 Claude Chrome 會在同一專用瀏覽器程序新增檢查頁視窗。
+
+專用 profile 關閉 Google 瀏覽器登入、同步及網址列的 AI Mode 按鈕。Chrome 原生新增視窗及分頁指令會使用內建的新分頁頁面；環境檢查控制首頁的繼續按鈕，網址列可直接前往其他網站。可在 Chrome「設定 → 搜尋引擎」選擇 Google 或 DuckDuckGo；啟動器會保留這項選擇。
 
 獨立 profile 位於 `~/Library/Application Support/Claude Chrome/Profile`；如已有舊 profile `~/.local/share/claude-network-guard/chrome-login-profile`，App 會沿用它。Profile 必須是權限 `0700` 的真實目錄，不能是 symlink。
 
@@ -40,7 +42,7 @@ Claude Chrome 會直接以 `--app=<內置 file: 首頁>` 啟動 Chrome，在沒�
 - `--proxy-server=http://127.0.0.1:17897`；
 - `--webrtc-ip-handling-policy=disable_non_proxied_udp`；
 - `--lang=<出口主要 locale>`，profile 的 selected 與 accepted languages 會按出口國家設定；
-- `--app=<本機環境檢查頁>`。
+- `--new-window <本機環境檢查頁>`。
 
 啟動器使用 `curl -q`、明確指定 loopback 代理及空白 `--noproxy`，避免沿用代理繞過設定。它會向 ipwho.is 取得出口 IP、國家及 IANA 時區，再以 `TZ=<IANA timezone>` 啟動專用 Chrome process。這不會改變 macOS 時區或其他 Chrome profile。
 

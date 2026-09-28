@@ -31,7 +31,9 @@ Copy `dist/Claude Chrome.app` into `/Applications`, then open it.
 
 ## Launch behavior
 
-Claude Chrome starts Google Chrome directly with `--app=<bundled file: start page>`. This produces a plain app-style window for the local environment check, without the Google home page, browser toolbar, or AI Mode omnibox entry.
+Claude Chrome opens the bundled environment-check page in a standard Chrome window with an address bar and tabs. Use `⌘L` to enter a URL, `⌘N` for a new window, and `⌘T` for a new tab. Opening Claude Chrome again creates another check-page window in the same dedicated browser process.
+
+The dedicated profile disables Google browser sign-in, sync, and the AI Mode address-bar button. Chrome's native new-window and new-tab commands use its built-in new-tab page; the checks govern the start page's Continue button, while the address bar supports direct navigation. Choose Google or DuckDuckGo in Chrome Settings → Search engine; the launcher preserves your search engine choice.
 
 The dedicated profile is stored at `~/Library/Application Support/Claude Chrome/Profile`. A legacy profile at `~/.local/share/claude-network-guard/chrome-login-profile` is reused when present. Profile directories must be real directories with mode `0700`.
 
@@ -40,7 +42,7 @@ The launcher treats this as an offline browser profile: it disables Chrome's Goo
 - `--proxy-server=http://127.0.0.1:17897`;
 - `--webrtc-ip-handling-policy=disable_non_proxied_udp`;
 - `--lang=<exit primary locale>`, with the profile's selected and accepted languages set from the exit country;
-- `--app=<local environment-check page>`.
+- `--new-window <local environment-check page>`.
 
 The launcher uses `curl -q` with the explicit loopback proxy and an empty `--noproxy` value, so proxy bypass settings are not inherited. It obtains the exit IP, country, and IANA timezone from ipwho.is, then starts the dedicated Chrome process with `TZ=<IANA timezone>`. This changes neither the macOS timezone nor other Chrome profiles.
 
