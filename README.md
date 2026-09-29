@@ -21,15 +21,15 @@ Build from source:
 ./scripts/build.sh
 ```
 
-The default build uses ad hoc signing. To use a stable local signing identity:
+Without a signing environment variable or identity file, the build uses ad hoc signing. To use a stable local signing identity:
 
 ```sh
 CLAUDE_CHROME_SIGNING_IDENTITY="YOUR_CODESIGN_IDENTITY" ./scripts/build.sh
 ```
 
-The environment variable takes precedence; to keep the choice across shells, store the certificate's 40-character SHA fingerprint in `~/Library/Application Support/Claude Chrome/signing-identity.txt` with mode `0600`.
+The environment variable takes precedence; to keep the choice across shells, store the certificate's 40-character SHA fingerprint in `~/Library/Application Support/Claude Chrome/signing-identity.txt` with mode `0600`. While that file exists, the build rejects an explicit switch to ad hoc signing.
 
-A stable identity can preserve the Keychain authorization identity across rebuilds. After changing identities, choose **Always Allow** on the first Keychain prompt. With the default ad hoc signature, a changed Chrome core hash may trigger the prompt again.
+A stable identity can preserve the Keychain authorization identity across rebuilds. After changing identities, choose **Always Allow** on the first Keychain prompt. Without a stable identity, a changed Chrome core hash may trigger the prompt again.
 
 The app is written to `dist/Claude Chrome.app`. The build includes the locally installed Chrome engine. On APFS it clones the engine to share file data. It retains at most one previous build as `dist/Claude Chrome.app.latest-backup`.
 
@@ -39,7 +39,13 @@ This repository distributes source and build instructions. It does not publish a
 
 ## Install
 
-Copy `dist/Claude Chrome.app` into `/Applications`, then open it.
+Quit Claude Chrome completely, then install the verified build without re-signing it:
+
+```sh
+./scripts/install.sh
+```
+
+The installer stages an APFS clone, clears extended attributes, verifies the complete signature and configured certificate fingerprint, then replaces `/Applications/Claude Chrome.app`. It keeps at most one rollback copy at `~/Library/Application Support/Claude Chrome/Previous Claude Chrome.app` and refuses to overwrite a running installation. An optional source App path may be passed as the only argument.
 
 ## Launch behavior
 

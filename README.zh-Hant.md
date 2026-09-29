@@ -21,15 +21,15 @@ Claude Chrome 1.2.2 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨�
 ./scripts/build.sh
 ```
 
-預設使用 ad hoc 簽章。如要使用固定的本機簽章 identity：
+未設定簽章環境變數或 identity 檔案時，建置會使用 ad hoc 簽章。如要使用固定的本機簽章 identity：
 
 ```sh
 CLAUDE_CHROME_SIGNING_IDENTITY="YOUR_CODESIGN_IDENTITY" ./scripts/build.sh
 ```
 
-環境變數優先；如要跨 shell 持續使用，可將憑證的 40 位 SHA fingerprint 存入 `~/Library/Application Support/Claude Chrome/signing-identity.txt`，權限設為 `0600`。
+環境變數優先；如要跨 shell 持續使用，可將憑證的 40 位 SHA fingerprint 存入 `~/Library/Application Support/Claude Chrome/signing-identity.txt`，權限設為 `0600`。此檔案存在時，建置會拒絕明確切換至 ad hoc 簽章。
 
-固定 identity 可讓重建後的 Keychain 授權識別保持一致。更換 identity 後，首次提示請選擇 **總是允許（Always Allow）**。使用預設 ad hoc 簽章時，Chrome 核心 hash 改變後可能再次提示。
+固定 identity 可讓重建後的 Keychain 授權識別保持一致。更換 identity 後，首次提示請選擇 **總是允許（Always Allow）**。未設定固定 identity 時，Chrome 核心 hash 改變後可能再次提示。
 
 App 會輸出至 `dist/Claude Chrome.app`，內置本機已安裝的 Chrome 核心。在 APFS 上會複製為共享檔案資料的 clone。建置流程最多保留一份舊版本：`dist/Claude Chrome.app.latest-backup`。
 
@@ -39,7 +39,13 @@ App 會輸出至 `dist/Claude Chrome.app`，內置本機已安裝的 Chrome 核�
 
 ## 安裝
 
-將 `dist/Claude Chrome.app` 複製到 `/Applications`，然後開啟。
+完全結束 Claude Chrome 後，以原有簽章安裝已驗證的建置：
+
+```sh
+./scripts/install.sh
+```
+
+安裝器會先建立 APFS clone、清除 extended attributes，並驗證完整簽章及已設定的憑證 fingerprint，再替換 `/Applications/Claude Chrome.app`。它最多保留一份 rollback 於 `~/Library/Application Support/Claude Chrome/Previous Claude Chrome.app`，並拒絕覆蓋正在執行的版本；唯一參數可指定其他來源 App 路徑。
 
 ## 啟動方式
 

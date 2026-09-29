@@ -55,6 +55,11 @@ else
 fi
 readonly SIGNING_IDENTITY
 
+if [[ "$SIGNING_IDENTITY" == '-' && -e "$SIGNING_IDENTITY_FILE" ]]; then
+  print -u2 '已設定固定本機簽章，不能改用 ad hoc 簽章。'
+  exit 65
+fi
+
 if [[ ! -f "$LOGO_PATH" || -L "$LOGO_PATH" ]]; then
   print -u2 '缺少已核准的 Resources/Logo.png。'
   exit 66
