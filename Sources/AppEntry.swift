@@ -8,6 +8,7 @@ enum AppEntry {
             .appendingPathComponent("Contents/Helpers/Claude Chrome Guard.app/Contents/MacOS/Claude Chrome Guard")
         let process = Process()
         process.executableURL = guardExecutable
+        process.arguments = Array(CommandLine.arguments.dropFirst())
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {

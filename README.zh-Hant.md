@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-Claude Chrome 1.2.1 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
+Claude Chrome 1.2.2 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
@@ -58,13 +58,15 @@ Claude Chrome 會在有網址列及分頁的獨立瀏覽器視窗開啟內置環
 
 啟動器使用 `curl -q`、明確指定 loopback 代理及空白 `--noproxy`，避免沿用代理繞過設定。它會向 ipwho.is 取得出口 IP、國家及 IANA 時區，再以 `TZ=<IANA timezone>` 啟動專用 Chrome process。這不會改變 macOS 時區或其他 Chrome profile。
 
-同一次 App 存活期間，啟動保護程序會保留自己啟動的瀏覽器 process、所用時區及語言，並拒絕不屬於自己的既有 profile process。結束瀏覽器會同時結束背景保護程序；如保護程序異常結束，留下的瀏覽器會視為未受管理，必須完全結束該視窗後再開啟 Claude Chrome。
+啟動保護程序會保留自己啟動的瀏覽器 process、所用時區及語言。新啟動請求須核對父保護程序的執行中簽章、受保護 flags、時區及 profile 語言後，才可重用該瀏覽器。結束瀏覽器會同時結束背景保護程序；如保護程序異常結束，留下的瀏覽器會視為未受管理，必須完全結束該視窗後再開啟 Claude Chrome。
 
 啟動器會用 macOS Foundation 與 ICU likely-subtags，按出口國家推導主要 locale。例如日本為 `ja-JP`、`ja`，美國為 `en-US`、`en`，台灣為 `zh-Hant-TW`、`zh-Hant`，新加坡為 `en-SG`、`en`；多語國家採系統 locale 資料的預設主要語言。出口國家或語言改變時必須冷啟動。
 
 ## 環境檢查
 
 本機首頁所有必要檢查通過後，繼續按鈕才會開啟 `https://claude.ai`。按下繼續時會重新執行出口與信譽檢查；出口、快照或風險改變會清除之前的確認。
+
+Claude Code 登入入口可傳入 `--login-url <官方 OAuth 網址>`。登入連結先進入環境檢查頁，通過後按「繼續 Claude Code 登入」才開啟原本的官方連結；未通過時保持阻擋。啟動器不會將登入連結存入設定，檢查頁會從目前網址移除它。
 
 - **出口及地區：** Cloudflare Trace 及 ipwho.is 的最新結果必須有相同公網 IP 及國家，並符合 native 啟動評估。`Resources/SupportedRegions.js` 收錄 [Anthropic 支援國家頁](https://www.anthropic.com/supported-countries) 於 `2026-09-29` 的 185 個 Claude.ai 國家快照。出口位於烏克蘭時，Crimea、Donetsk、Kherson、Luhansk 或 Zaporizhzhia 分區會被排除；缺少分區資料則為未知。
 - **時區及時鐘：** 出口時區與 UTC offset 必須同時符合主頁及 Blob Worker 即時回讀的 `Intl`／`Date` 結果。

@@ -7,6 +7,25 @@
   const NETWORK_TIMEOUT_MS = 8000;
   const ICE_TIMEOUT_MS = 5500;
   const NETWORK_CACHE_MS = 60000;
+  const HOME_TARGET = "https://claude.ai";
+  const OAUTH_TARGETS = new Map([
+    ["claude.com", "/cai/oauth/authorize"],
+    ["platform.claude.com", "/oauth/authorize"],
+  ]);
+  const OAUTH_REQUIRED_PARAMETERS = [
+    "client_id", "code", "code_challenge", "code_challenge_method",
+    "redirect_uri", "response_type", "scope", "state",
+  ];
+  const OAUTH_OPTIONAL_PARAMETERS = new Set(["login_hint", "login_method", "orgUUID"]);
+  const launchTarget = (() => {
+    const parameters = new URLSearchParams(window.location.hash.slice(1));
+    const target = validTargetURL(parameters.get("target") || "");
+    parameters.delete("target");
+    const sanitizedURL = new URL(window.location.href);
+    sanitizedURL.hash = parameters.toString();
+    history.replaceState(null, "", sanitizedURL.href);
+    return target;
+  })();
 
   const elements = {
     summary: document.querySelector(".summary"),
@@ -24,6 +43,8 @@
     language: rowElements("language"),
     fingerprint: rowElements("fingerprint"),
   };
+
+  if (launchTarget && launchTarget !== HOME_TARGET) elements.continueButton.textContent = "繼續 Claude Code 登入";
 
   let generation = 0;
   let fetchController = null;
@@ -167,9 +188,48 @@
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) assessment = parsed;
       }
     } catch (_) {
-      return { timezone: "", assessment: null };
+      return { timezone: "", assessment: null, target: "" };
     }
-    return { timezone, assessment };
+    return { timezone, assessment, target: launchTarget };
+  }
+
+  function validTargetURL(value) {
+    if (value === HOME_TARGET) return value;
+    if (typeof value !== "string" || new TextEncoder().encode(value).length > 8192) return "";
+    try {
+      const target = new URL(value);
+      const expectedPath = OAUTH_TARGETS.get(target.hostname);
+      if (target.protocol !== "https:" || target.username || target.password || target.port
+        || target.hash || !expectedPath || target.pathname !== expectedPath) return "";
+
+      const names = Array.from(target.searchParams.keys());
+      const allowed = new Set([...OAUTH_REQUIRED_PARAMETERS, ...OAUTH_OPTIONAL_PARAMETERS]);
+      if (names.some((name) => !allowed.has(name))) return "";
+      if (OAUTH_REQUIRED_PARAMETERS.some((name) => target.searchParams.getAll(name).length !== 1)) return "";
+      if (Array.from(OAUTH_OPTIONAL_PARAMETERS).some((name) => target.searchParams.getAll(name).length > 1)) return "";
+      if (target.searchParams.get("code") !== "true"
+        || target.searchParams.get("response_type") !== "code"
+        || target.searchParams.get("code_challenge_method") !== "S256"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(target.searchParams.get("client_id") || "")
+        || !/^[A-Za-z0-9_-]{43}$/.test(target.searchParams.get("code_challenge") || "")
+        || !/^[A-Za-z0-9_-]{43}$/.test(target.searchParams.get("state") || "")) return "";
+
+      const scope = target.searchParams.get("scope") || "";
+      if (!scope || new TextEncoder().encode(scope).length > 2048) return "";
+      for (const name of OAUTH_OPTIONAL_PARAMETERS) {
+        const item = target.searchParams.get(name);
+        if (item !== null && (!item || new TextEncoder().encode(item).length > 512 || /[\u0000-\u001f\u007f]/.test(item))) return "";
+      }
+
+      const redirect = new URL(target.searchParams.get("redirect_uri") || "");
+      if (redirect.protocol !== "http:" || redirect.hostname !== "localhost"
+        || !redirect.port || Number(redirect.port) < 1 || Number(redirect.port) > 65535
+        || redirect.username || redirect.password || redirect.pathname !== "/callback"
+        || redirect.search || redirect.hash) return "";
+      return value;
+    } catch (_) {
+      return "";
+    }
   }
 
   function supportedRegions() {
@@ -680,14 +740,17 @@
 
   function updateOverall(evaluation, navigate = false) {
     const { network, reputation, timezone, webrtc, language, fingerprint, token } = evaluation;
+    const target = expectedEnvironment().target;
     const riskAccepted = configureRiskAcceptance(reputation);
     const required = [network, timezone, webrtc, language, fingerprint];
     const reputationPassed = reputation.state === "pass" || riskAccepted;
-    const passed = reputationPassed && required.every((result) => result.state === "pass");
-    const unknown = reputation.state === "unknown" || required.some((result) => result.state === "unknown");
+    const passed = Boolean(target) && reputationPassed && required.every((result) => result.state === "pass");
+    const unknown = !target || reputation.state === "unknown" || required.some((result) => result.state === "unknown");
     elements.summary.dataset.state = passed ? "pass" : unknown ? "unknown" : "fail";
     elements.overallTitle.textContent = passed ? "環境檢查通過" : unknown ? "仍有狀態無法確認" : "環境檢查未通過";
-    elements.overallDetail.textContent = passed
+    elements.overallDetail.textContent = !target
+      ? "啟動目標無法確認，請重新開啟 Claude Chrome。"
+      : passed
       ? riskAccepted ? "已接受目前機房 IP 風險；其餘檢查通過。" : "目前可觀察條件符合設定。"
       : reputation.overrideEligible === true && !riskAccepted
         ? "請確認目前機房 IP 風險後再繼續。"
@@ -695,7 +758,7 @@
     elements.continueButton.disabled = !passed;
     elements.retryButton.disabled = false;
 
-    if (passed && navigate && token === generation) window.location.assign("https://claude.ai");
+    if (passed && navigate && token === generation) window.location.assign(target);
     return passed;
   }
 

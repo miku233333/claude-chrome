@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import Network
+import Security
 
 private let appName = "Claude Chrome"
 private let applicationURL = Bundle.main.bundleURL
@@ -10,7 +11,19 @@ private let applicationURL = Bundle.main.bundleURL
     .deletingLastPathComponent()
 private let chromeBinary = applicationURL
     .appendingPathComponent("Contents/MacOS/Google Chrome").path
+private let guardBinary = applicationURL
+    .appendingPathComponent("Contents/Helpers/Claude Chrome Guard.app/Contents/MacOS/Claude Chrome Guard").path
 private let defaultProxyURL = "http://127.0.0.1:17897"
+private let defaultTargetURL = "https://claude.ai"
+private let oauthTargetPaths = [
+    "claude.com": "/cai/oauth/authorize",
+    "platform.claude.com": "/oauth/authorize",
+]
+private let oauthRequiredQueryItems: Set<String> = [
+    "client_id", "code", "code_challenge", "code_challenge_method",
+    "redirect_uri", "response_type", "scope", "state",
+]
+private let oauthOptionalQueryItems: Set<String> = ["login_hint", "login_method", "orgUUID"]
 
 final class AppDelegate: NSObject {
     private lazy var profileURL = resolveProfileURL()
@@ -22,10 +35,22 @@ final class AppDelegate: NSObject {
     fileprivate var keepRunning = true
 
     func start() {
-        openLoginBrowser()
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        let targetURL: String
+        if arguments.isEmpty {
+            targetURL = defaultTargetURL
+        } else if arguments.count == 2,
+                  arguments[0] == "--login-url",
+                  validOAuthURL(arguments[1]) {
+            targetURL = arguments[1]
+        } else {
+            showError("登入網址無法確認。")
+            return
+        }
+        openLoginBrowser(targetURL: targetURL)
     }
 
-    private func openLoginBrowser() {
+    private func openLoginBrowser(targetURL: String) {
         guard !launchPending else { return }
         guard FileManager.default.isExecutableFile(atPath: chromeBinary) else {
             showError("找不到內置瀏覽器核心，請重新建置 Claude Chrome。")
@@ -57,8 +82,9 @@ final class AppDelegate: NSObject {
                 parameters.queryItems = [
                     URLQueryItem(name: "timezone", value: timeZone.identifier),
                     URLQueryItem(name: "assessment", value: encodedAssessment),
+                    URLQueryItem(name: "target", value: targetURL),
                 ]
-                page.percentEncodedFragment = parameters.percentEncodedQuery
+                page.percentEncodedFragment = parameters.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
                 guard let pageURL = page.url else {
                     self.showError("無法建立環境檢查頁網址。")
                     return
@@ -173,6 +199,66 @@ final class AppDelegate: NSObject {
         return true
     }
 
+    private func validOAuthURL(_ value: String) -> Bool {
+        guard value.utf8.count <= 8_192,
+              let components = URLComponents(string: value),
+              components.scheme == "https",
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.fragment == nil,
+              let host = components.host?.lowercased(),
+              let expectedPath = oauthTargetPaths[host],
+              components.percentEncodedPath == expectedPath,
+              let items = components.queryItems
+        else { return false }
+
+        var values: [String: [String]] = [:]
+        for item in items {
+            guard let value = item.value else { return false }
+            values[item.name, default: []].append(value)
+        }
+        let names = Set(values.keys)
+        guard oauthRequiredQueryItems.isSubset(of: names),
+              names.isSubset(of: oauthRequiredQueryItems.union(oauthOptionalQueryItems)),
+              values.values.allSatisfy({ $0.count == 1 }),
+              values["code"] == ["true"],
+              values["response_type"] == ["code"],
+              values["code_challenge_method"] == ["S256"],
+              let clientID = values["client_id"]?.first,
+              UUID(uuidString: clientID) != nil,
+              let challenge = values["code_challenge"]?.first,
+              challenge.range(of: #"^[A-Za-z0-9_-]{43}$"#, options: .regularExpression) != nil,
+              let state = values["state"]?.first,
+              state.range(of: #"^[A-Za-z0-9_-]{43}$"#, options: .regularExpression) != nil,
+              let scope = values["scope"]?.first,
+              !scope.isEmpty,
+              scope.utf8.count <= 2_048,
+              let redirect = values["redirect_uri"]?.first,
+              validOAuthRedirect(redirect)
+        else { return false }
+
+        return oauthOptionalQueryItems.allSatisfy { name in
+            guard let value = values[name]?.first else { return true }
+            return !value.isEmpty && value.utf8.count <= 512 && !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        }
+    }
+
+    private func validOAuthRedirect(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value),
+              components.scheme == "http",
+              components.host?.lowercased() == "localhost",
+              let port = components.port,
+              (1...65_535).contains(port),
+              components.user == nil,
+              components.password == nil,
+              components.percentEncodedPath == "/callback",
+              components.query == nil,
+              components.fragment == nil
+        else { return false }
+        return true
+    }
+
     private func resolveProfileURL() -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let legacy = home.appendingPathComponent(".local/share/claude-network-guard/chrome-login-profile", isDirectory: true)
@@ -279,11 +365,13 @@ final class AppDelegate: NSObject {
             return nil
         }
         let positionalArguments = invocation.arguments.dropFirst().filter { !$0.hasPrefix("--") }
-        guard let browserProcess,
-              browserProcess.isRunning,
-              browserProcess.processIdentifier == pid,
-              browserTimeZone == timeZone.identifier,
-              browserLanguages == languages,
+        let launchedByThisGuard = browserProcess?.isRunning == true &&
+            browserProcess?.processIdentifier == pid &&
+            browserTimeZone == timeZone.identifier &&
+            browserLanguages == languages
+        let launchedByInstalledGuard = managedGuardIsParent(of: pid) &&
+            profileLanguagesMatch(profileURL, languages: languages)
+        guard launchedByThisGuard || launchedByInstalledGuard,
               invocation.executable == chromeBinary,
               invocation.arguments.first == chromeBinary,
               requiredArguments.allSatisfy({ expected in
@@ -293,6 +381,7 @@ final class AppDelegate: NSObject {
               positionalArguments.count == 1,
               let actualHomepage = positionalArguments.first,
               sameStartPageBase(actualHomepage, homepageURL.absoluteString),
+              startPageTimeZoneMatches(actualHomepage, timeZone: timeZone),
               invocation.arguments.dropFirst().allSatisfy({ argument in
                   let isGuarded = argument.hasPrefix("--proxy-") ||
                       argument.hasPrefix("--no-proxy-server") ||
@@ -313,6 +402,14 @@ final class AppDelegate: NSObject {
         }
 
         return .reuse
+    }
+
+    private func startPageTimeZoneMatches(_ value: String, timeZone: TimeZone) -> Bool {
+        guard let fragment = URLComponents(string: value)?.percentEncodedFragment else { return false }
+        var parameters = URLComponents()
+        parameters.percentEncodedQuery = fragment
+        let timeZones = parameters.queryItems?.filter { $0.name == "timezone" } ?? []
+        return timeZones.count == 1 && timeZones[0].value == timeZone.identifier
     }
 
     private func sameStartPageBase(_ actual: String, _ expected: String) -> Bool {
@@ -455,6 +552,98 @@ final class AppDelegate: NSObject {
         return errno == EPERM
     }
 
+    private func managedGuardIsParent(of browserPID: pid_t) -> Bool {
+        guard let browserBefore = processIdentity(for: browserPID),
+              browserBefore.parentPID > 1,
+              let guardBefore = processIdentity(for: browserBefore.parentPID),
+              processExecutablePath(for: guardBefore.pid) == URL(fileURLWithPath: guardBinary).resolvingSymlinksInPath().path,
+              runningCodeMatchesCurrentGuard(guardBefore.pid),
+              processIdentity(for: guardBefore.pid) == guardBefore,
+              processIdentity(for: browserPID) == browserBefore
+        else { return false }
+        return true
+    }
+
+    private struct ProcessIdentity: Equatable {
+        let pid: pid_t
+        let parentPID: pid_t
+        let startSeconds: UInt64
+        let startMicroseconds: UInt64
+    }
+
+    private func processIdentity(for pid: pid_t) -> ProcessIdentity? {
+        var information = proc_bsdinfo()
+        let expectedSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &information, expectedSize) == expectedSize,
+              information.pbi_pid == UInt32(pid)
+        else { return nil }
+        return ProcessIdentity(
+            pid: pid,
+            parentPID: pid_t(information.pbi_ppid),
+            startSeconds: information.pbi_start_tvsec,
+            startMicroseconds: information.pbi_start_tvusec
+        )
+    }
+
+    private func processExecutablePath(for pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+    }
+
+    private func runningCodeMatchesCurrentGuard(_ pid: pid_t) -> Bool {
+        var guestCode: SecCode?
+        guard SecCodeCopyGuestWithAttributes(
+            nil,
+            [kSecGuestAttributePid: pid] as CFDictionary,
+            [],
+            &guestCode
+        ) == errSecSuccess,
+            let guestCode,
+            SecCodeCheckValidity(guestCode, [], nil) == errSecSuccess
+        else { return false }
+
+        var runningStaticCode: SecStaticCode?
+        var installedStaticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(guestCode, [], &runningStaticCode) == errSecSuccess,
+              let runningStaticCode,
+              SecStaticCodeCreateWithPath(URL(fileURLWithPath: guardBinary) as CFURL, [], &installedStaticCode) == errSecSuccess,
+              let installedStaticCode,
+              SecStaticCodeCheckValidity(installedStaticCode, [], nil) == errSecSuccess,
+              let runningHash = codeHash(for: runningStaticCode),
+              let installedHash = codeHash(for: installedStaticCode)
+        else { return false }
+        return runningHash == installedHash
+    }
+
+    private func codeHash(for code: SecStaticCode) -> Data? {
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            code,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &information
+        ) == errSecSuccess,
+            let values = information as? [CFString: Any]
+        else { return nil }
+        return values[kSecCodeInfoUnique] as? Data
+    }
+
+    private func profileLanguagesMatch(_ profileURL: URL, languages: [String]) -> Bool {
+        let preferencesURL = profileURL.appendingPathComponent("Default/Preferences")
+        var status = stat()
+        guard Darwin.lstat(preferencesURL.path, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_size > 0,
+              status.st_size <= 4_194_304,
+              let data = try? Data(contentsOf: preferencesURL),
+              let preferences = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let international = preferences["intl"] as? [String: Any]
+        else { return false }
+        let expected = languages.joined(separator: ",")
+        return international["accept_languages"] as? String == expected &&
+            international["selected_languages"] as? String == expected
+    }
+
     private func processInvocation(for pid: pid_t) -> (executable: String, arguments: [String])? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var byteCount = 0
@@ -492,6 +681,7 @@ final class AppDelegate: NSObject {
             arguments.append(argument)
             index += 1
         }
+
         return (executable, arguments)
     }
 

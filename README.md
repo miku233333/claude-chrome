@@ -4,7 +4,7 @@
 
 [繁體中文](README.zh-Hant.md)
 
-Claude Chrome 1.2.1 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
+Claude Chrome 1.2.2 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
 
 ## Requirements
 
@@ -58,13 +58,15 @@ The launcher treats this as an offline browser profile: it disables Chrome's Goo
 
 The launcher uses `curl -q` with the explicit loopback proxy and an empty `--noproxy` value, so proxy bypass settings are not inherited. It obtains the exit IP, country, and IANA timezone from ipwho.is, then starts the dedicated Chrome process with `TZ=<IANA timezone>`. This changes neither the macOS timezone nor other Chrome profiles.
 
-For one app lifetime, the launch guard retains the browser process, timezone, and language it started. It rejects an existing profile process it does not own. Quitting the browser also ends the background guard. If the guard exits unexpectedly, the remaining browser process is unmanaged: fully quit that window before reopening Claude Chrome.
+The launch guard retains the browser process, timezone, and language it started. New launch requests can reuse that browser after verifying its parent guard's running signature, the protected flags, timezone, and profile languages. Quitting the browser also ends the background guard. If the guard exits unexpectedly, the remaining browser process is unmanaged: fully quit that window before reopening Claude Chrome.
 
 The launcher derives a primary locale from the exit country using macOS Foundation and ICU likely-subtags. Examples are Japan `ja-JP`, `ja`; United States `en-US`, `en`; Taiwan `zh-Hant-TW`, `zh-Hant`; and Singapore `en-SG`, `en`. Multi-language countries use the system locale data's default primary language. A country or language change requires a cold launch.
 
 ## Environment check
 
 The local start page must pass every required check before its Continue button opens `https://claude.ai`. Clicking Continue repeats exit and reputation checks; a changed exit, snapshot, or risk clears any prior acknowledgement.
+
+The Claude Code browser entry point can pass `--login-url <official OAuth URL>`. The link first opens the environment-check page; after passing, click Continue Claude Code sign-in to open the original official link. Failed checks keep continuation blocked. The launcher does not save the link in its settings, and the check page removes it from its current address.
 
 - **Exit and region:** fresh Cloudflare Trace and ipwho.is responses must agree on public IP and country and match the native launch assessment. `Resources/SupportedRegions.js` contains the 185 Claude.ai countries from [Anthropic's supported-countries page](https://www.anthropic.com/supported-countries), captured on `2026-09-29`. Ukraine is excluded when its reported subdivision is Crimea, Donetsk, Kherson, Luhansk, or Zaporizhzhia; a missing Ukraine subdivision is unknown.
 - **Timezone and clock:** the exit timezone and UTC offset must agree with live `Intl` and `Date` readings from both the main page and a Blob Worker.
