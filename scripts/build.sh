@@ -9,6 +9,7 @@ readonly OUTPUT_APP="$DIST_DIR/Claude Chrome.app"
 readonly BACKUP_APP="$DIST_DIR/Claude Chrome.app.latest-backup"
 readonly LOGO_PATH="$RESOURCE_DIR/Logo.png"
 readonly GUARD_INFO_SOURCE="$RESOURCE_DIR/GuardInfo.plist"
+readonly SIGNING_IDENTITY_FILE="$HOME/Library/Application Support/Claude Chrome/signing-identity.txt"
 readonly CHROME_APP="/Applications/Google Chrome.app"
 readonly CHROME_CORE="$CHROME_APP/Contents/MacOS/Google Chrome"
 readonly STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claude-chrome-build.XXXXXX")"
@@ -29,6 +30,30 @@ cleanup() {
   /usr/bin/find "$STAGING_DIR" -depth -delete 2>/dev/null || true
 }
 trap cleanup EXIT
+
+if (( ${+CLAUDE_CHROME_SIGNING_IDENTITY} )); then
+  if [[ -z "$CLAUDE_CHROME_SIGNING_IDENTITY" ]]; then
+    print -u2 'CLAUDE_CHROME_SIGNING_IDENTITY 不可為空。'
+    exit 64
+  fi
+  SIGNING_IDENTITY="$CLAUDE_CHROME_SIGNING_IDENTITY"
+elif [[ -L "$SIGNING_IDENTITY_FILE" ]]; then
+  print -u2 '本機簽章identity檔案不可為符號連結。'
+  exit 65
+elif [[ -e "$SIGNING_IDENTITY_FILE" ]]; then
+  if [[ ! -f "$SIGNING_IDENTITY_FILE" || ! -r "$SIGNING_IDENTITY_FILE" ]]; then
+    print -u2 '本機簽章identity檔案無法讀取。'
+    exit 65
+  fi
+  SIGNING_IDENTITY="$(<"$SIGNING_IDENTITY_FILE")"
+  if (( ${#SIGNING_IDENTITY} != 40 )) || [[ "$SIGNING_IDENTITY" == *[^[:xdigit:]]* ]]; then
+    print -u2 '本機簽章identity檔案必須只包含40位SHA fingerprint。'
+    exit 65
+  fi
+else
+  SIGNING_IDENTITY='-'
+fi
+readonly SIGNING_IDENTITY
 
 if [[ ! -f "$LOGO_PATH" || -L "$LOGO_PATH" ]]; then
   print -u2 '缺少已核准的 Resources/Logo.png。'
@@ -185,12 +210,24 @@ if [[ -z "$source_core_identifier" || -z "$source_core_flags" || -z "$source_fra
 fi
 
 /usr/bin/xattr -cr "$STAGING_APP"
-/usr/bin/codesign --force --sign - \
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
   --options "$((source_core_flags & ~0x2000))" \
   --entitlements "$LOCAL_CORE_ENTITLEMENTS" \
   --preserve-metadata=identifier,runtime "$STAGING_CORE"
-/usr/bin/codesign --force --sign - "$GUARD_APP"
-/usr/bin/codesign --force --sign - "$STAGING_APP"
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$GUARD_APP"
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$STAGING_APP"
+
+if [[ "$SIGNING_IDENTITY" != '-' ]]; then
+  built_core_team="$(/usr/bin/codesign -dvvv "$STAGING_CORE" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)"
+  built_guard_team="$(/usr/bin/codesign -dvvv "$GUARD_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)"
+  built_root_team="$(/usr/bin/codesign -dvvv "$STAGING_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)"
+  if [[ -z "$built_core_team" || "$built_core_team" == 'not set' ]] ||
+     [[ "$built_guard_team" != "$built_core_team" ]] ||
+     [[ "$built_root_team" != "$built_core_team" ]]; then
+    print -u2 '本機簽章的TeamIdentifier無法驗證。'
+    exit 65
+  fi
+fi
 
 /usr/bin/codesign --display --entitlements - --xml "$STAGING_CORE" > "$BUILT_ENTITLEMENTS" 2>/dev/null
 built_core_identifier="$(/usr/bin/codesign -dvv "$STAGING_CORE" 2>&1 | /usr/bin/sed -n 's/^Identifier=//p' | /usr/bin/head -n 1)"

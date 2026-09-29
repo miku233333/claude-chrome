@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-Claude Chrome 1.2.0 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
+Claude Chrome 1.2.1 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
@@ -21,7 +21,17 @@ Claude Chrome 1.2.0 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨�
 ./scripts/build.sh
 ```
 
-App 會輸出至 `dist/Claude Chrome.app`，內置本機已安裝的 Chrome 核心，以 ad hoc 簽署供本機使用。在 APFS 上會複製為共享檔案資料的 clone。建置流程最多保留一份舊版本：`dist/Claude Chrome.app.latest-backup`。
+預設使用 ad hoc 簽章。如要使用固定的本機簽章 identity：
+
+```sh
+CLAUDE_CHROME_SIGNING_IDENTITY="YOUR_CODESIGN_IDENTITY" ./scripts/build.sh
+```
+
+環境變數優先；如要跨 shell 持續使用，可將憑證的 40 位 SHA fingerprint 存入 `~/Library/Application Support/Claude Chrome/signing-identity.txt`，權限設為 `0600`。
+
+固定 identity 可讓重建後的 Keychain 授權識別保持一致。更換 identity 後，首次提示請選擇 **總是允許（Always Allow）**。使用預設 ad hoc 簽章時，Chrome 核心 hash 改變後可能再次提示。
+
+App 會輸出至 `dist/Claude Chrome.app`，內置本機已安裝的 Chrome 核心。在 APFS 上會複製為共享檔案資料的 clone。建置流程最多保留一份舊版本：`dist/Claude Chrome.app.latest-backup`。
 
 內置核心是建置時的 Chrome 版本快照。更新 Google Chrome 後，重新建置並替換 Claude Chrome 即可更新核心。
 

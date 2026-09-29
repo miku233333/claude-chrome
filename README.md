@@ -4,7 +4,7 @@
 
 [繁體中文](README.zh-Hant.md)
 
-Claude Chrome 1.2.0 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
+Claude Chrome 1.2.1 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
 
 ## Requirements
 
@@ -21,7 +21,17 @@ Build from source:
 ./scripts/build.sh
 ```
 
-The app is written to `dist/Claude Chrome.app`. The build includes the locally installed Chrome engine and is ad hoc signed for local use. On APFS it clones the engine to share file data. It retains at most one previous build as `dist/Claude Chrome.app.latest-backup`.
+The default build uses ad hoc signing. To use a stable local signing identity:
+
+```sh
+CLAUDE_CHROME_SIGNING_IDENTITY="YOUR_CODESIGN_IDENTITY" ./scripts/build.sh
+```
+
+The environment variable takes precedence; to keep the choice across shells, store the certificate's 40-character SHA fingerprint in `~/Library/Application Support/Claude Chrome/signing-identity.txt` with mode `0600`.
+
+A stable identity can preserve the Keychain authorization identity across rebuilds. After changing identities, choose **Always Allow** on the first Keychain prompt. With the default ad hoc signature, a changed Chrome core hash may trigger the prompt again.
+
+The app is written to `dist/Claude Chrome.app`. The build includes the locally installed Chrome engine. On APFS it clones the engine to share file data. It retains at most one previous build as `dist/Claude Chrome.app.latest-backup`.
 
 The bundled engine is a snapshot of the installed Chrome version. To update it, update Google Chrome, rebuild Claude Chrome, and replace the app.
 
