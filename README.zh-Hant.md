@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-Claude Chrome 1.2.2 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
+Claude Chrome 1.2.3 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
@@ -12,6 +12,12 @@ Claude Chrome 1.2.2 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨�
 - 建置時 Google Chrome 安裝於 `/Applications`
 - HTTP 代理監聽 `127.0.0.1:17897`
 - 已安裝包含 `swiftc` 的 Command Line Tools
+
+## 初次設定
+
+1. 啟動本機 HTTP 代理，預設地址為 `127.0.0.1:17897`；如使用其他本機連接埠，按下文「本機代理設定」填寫 `config.json`。
+2. 開啟 Claude Chrome。啟動器會讀取出口資料，並按出口設定此瀏覽器的時區與語言；如果代理未啟動，提示會顯示需要檢查的地址。
+3. 按首頁「修正方法」處理未通過的項目；需要更換出口或更新啟動快照時，完全結束 App（`⌘Q`）後重新開啟。
 
 ## 建置
 

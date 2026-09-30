@@ -4,7 +4,7 @@
 
 [繁體中文](README.zh-Hant.md)
 
-Claude Chrome 1.2.2 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
+Claude Chrome 1.2.3 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
 
 ## Requirements
 
@@ -12,6 +12,12 @@ Claude Chrome 1.2.2 is a macOS browser app with a bundled Chrome engine, dedicat
 - Google Chrome installed in `/Applications` when building
 - An HTTP proxy listening on `127.0.0.1:17897`
 - Command Line Tools with `swiftc`
+
+## First-time setup
+
+1. Start a local HTTP proxy at the default address `127.0.0.1:17897`. To use another local port, set `proxyURL` in `config.json` as described under Local proxy configuration below.
+2. Open Claude Chrome. The launcher reads the exit and sets this browser's timezone and languages. If the proxy is unavailable, the startup alert identifies the address to check.
+3. Follow the start page's setup steps for failed checks. After changing the exit or when a fresh startup snapshot is needed, fully quit the app (`⌘Q`) and reopen it.
 
 ## Build
 

@@ -8,6 +8,26 @@
   const ICE_TIMEOUT_MS = 5500;
   const NETWORK_CACHE_MS = 60000;
   const HOME_TARGET = "https://claude.ai";
+  const REMEDY = Object.freeze({
+    CHECK_CONNECTION: "check-proxy-connectivity",
+    RESTART: "restart-claude-chrome",
+    CHANGE_EXIT: "change-exit-and-restart",
+    WAIT_REPUTATION: "wait-reputation-refresh",
+    REVIEW_WEBRTC: "review-webrtc-safeguards",
+    REVIEW_BROWSER: "review-browser-environment",
+  });
+  const REMEDY_STEPS = Object.freeze({
+    [REMEDY.CHECK_CONNECTION]: "確認本機代理及網絡連線正常，然後按「重新檢查」。",
+    [REMEDY.RESTART]: "按 ⌘Q 完全結束 Claude Chrome，然後重新開啟以套用最新出口設定。",
+    [REMEDY.CHANGE_EXIT]: "在本機代理切換至受支援且風險可接受的出口，再按 ⌘Q 完全結束並重新開啟 Claude Chrome。",
+    [REMEDY.WAIT_REPUTATION]: "等候約 1 分鐘，然後按 ⌘Q 完全結束並重新開啟 Claude Chrome，以重新取得 IP 信譽資料。",
+    [REMEDY.REVIEW_WEBRTC]: "完全結束並重新開啟 Claude Chrome；如仍未通過，檢查代理、WebRTC 或網絡擴充功能，請勿關閉現有防護。",
+    [REMEDY.REVIEW_BROWSER]: "完全結束並重新開啟 Claude Chrome；如仍未通過，檢查瀏覽器設定、硬體加速或擴充功能，請勿關閉現有防護。",
+  });
+  const REMEDY_LINKS = Object.freeze({
+    [REMEDY.CHECK_CONNECTION]: { label: "代理設定說明", url: "https://github.com/miku233333/claude-chrome/blob/main/README.zh-Hant.md#本機代理設定" },
+    [REMEDY.CHANGE_EXIT]: { label: "Anthropic 支援地區", url: "https://www.anthropic.com/supported-countries" },
+  });
   const OAUTH_TARGETS = new Map([
     ["claude.com", "/cai/oauth/authorize"],
     ["platform.claude.com", "/oauth/authorize"],
@@ -33,6 +53,8 @@
     overallDetail: document.getElementById("overall-detail"),
     continueButton: document.getElementById("continue-button"),
     retryButton: document.getElementById("retry-button"),
+    remedyPanel: document.getElementById("remedy-panel"),
+    remedySteps: document.getElementById("remedy-steps"),
     riskAcceptance: document.getElementById("risk-acceptance"),
     riskAcceptanceCheckbox: document.getElementById("risk-acceptance-checkbox"),
     riskAcceptanceStatus: document.getElementById("risk-acceptance-status"),
@@ -42,6 +64,7 @@
     webrtc: rowElements("webrtc"),
     language: rowElements("language"),
     fingerprint: rowElements("fingerprint"),
+    fonts: rowElements("fonts"),
   };
 
   if (launchTarget && launchTarget !== HOME_TARGET) elements.continueButton.textContent = "繼續 Claude Code 登入";
@@ -78,9 +101,12 @@
     setRow(elements.webrtc, "checking", "檢查中", "正在觀察網絡候選位址…");
     setRow(elements.language, "checking", "檢查中", "正在比對出口與瀏覽器語言…");
     setRow(elements.fingerprint, "checking", "檢查中", "正在檢查瀏覽器環境…");
+    setRow(elements.fonts, "checking", "檢查中", "正在檢查本機可見字型…");
     elements.continueButton.disabled = true;
     elements.retryButton.disabled = true;
     elements.riskAcceptanceCheckbox.disabled = true;
+    elements.remedyPanel.hidden = true;
+    elements.remedySteps.replaceChildren();
   }
 
   function parseTrace(body) {
@@ -292,7 +318,7 @@
 
   async function checkNetwork(signal, forceFresh = false) {
     if (navigator.onLine === false) {
-      return { state: "fail", detail: "目前沒有網絡連線", ip: null, timezone: "", offset: null };
+      return { state: "fail", remedy: REMEDY.CHECK_CONNECTION, detail: "目前沒有網絡連線", ip: null, timezone: "", offset: null };
     }
 
     const expected = expectedEnvironment();
@@ -301,7 +327,7 @@
       ? expected.assessment.exitCountryCode
       : "";
     if (expected.assessment?.schema !== 1 || !expectedIP || !expected.timezone || !/^[A-Z]{2}$/.test(expectedCountry)) {
-      return { state: "unknown", detail: "啟動資料不完整，請重新開啟 Claude Chrome", ip: null, timezone: "", offset: null };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "啟動資料不完整，請重新開啟 Claude Chrome", ip: null, timezone: "", offset: null };
     }
 
     let payload;
@@ -313,13 +339,13 @@
         payload = await readNetwork(signal);
         networkCache = { createdAt: now, payload };
       } catch (_) {
-        return { state: "unknown", detail: "無法讀取出口資料", ip: null, timezone: "", offset: null };
+        return { state: "unknown", remedy: REMEDY.CHECK_CONNECTION, detail: "無法讀取出口資料", ip: null, timezone: "", offset: null };
       }
     }
 
     const { trace, metadata } = payload;
     if (!metadata || typeof metadata !== "object" || metadata.success !== true) {
-      return { state: "unknown", detail: "出口資料格式無法辨識", ip: null, timezone: "", offset: null };
+      return { state: "unknown", remedy: REMEDY.CHECK_CONNECTION, detail: "出口資料格式無法辨識", ip: null, timezone: "", offset: null };
     }
 
     const traceIP = normalizeIP(trace.ip || "");
@@ -329,26 +355,27 @@
     const timezone = canonicalTimeZone(metadata.timezone && typeof metadata.timezone === "object" ? metadata.timezone.id : "");
     const offset = metadata.timezone && typeof metadata.timezone === "object" ? metadata.timezone.offset : null;
     if (!traceIP || !metadataIP || !isPublicIP(traceIP) || !isPublicIP(metadataIP) || !traceCountry || !metadataCountry || !timezone || !Number.isInteger(offset)) {
-      return { state: "unknown", detail: "出口資料不完整", ip: null, timezone: "", offset: null };
+      return { state: "unknown", remedy: REMEDY.CHECK_CONNECTION, detail: "出口資料不完整", ip: null, timezone: "", offset: null };
     }
     if (traceIP !== metadataIP || traceCountry !== metadataCountry) {
-      return { state: "fail", detail: "兩個出口來源的結果不一致", ip: traceIP, timezone, offset };
+      return { state: "fail", remedy: REMEDY.CHECK_CONNECTION, detail: "兩個出口來源的結果不一致", ip: traceIP, timezone, offset };
     }
     if (traceIP !== expectedIP || traceCountry !== expectedCountry || timezone !== expected.timezone) {
-      return { state: "fail", detail: "出口地區、IP 或時區已改變，請重新開啟 Claude Chrome", ip: traceIP, country: traceCountry, timezone, offset };
+      return { state: "fail", remedy: REMEDY.RESTART, detail: "出口地區、IP 或時區已改變，請重新開啟 Claude Chrome", ip: traceIP, country: traceCountry, timezone, offset };
     }
 
     const regions = supportedRegions();
     if (!regions) {
-      return { state: "unknown", detail: "無法讀取支援地區清單", ip: traceIP, timezone, offset };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "無法讀取支援地區清單", ip: traceIP, timezone, offset };
     }
     const excludedSubdivision = unsupportedSubdivision(traceCountry, metadata.region);
     if (excludedSubdivision === null) {
-      return { state: "unknown", detail: "無法確認此出口的地區範圍", ip: traceIP, country: traceCountry, timezone, offset };
+      return { state: "unknown", remedy: REMEDY.CHANGE_EXIT, detail: "無法確認此出口的地區範圍", ip: traceIP, country: traceCountry, timezone, offset };
     }
     const supported = regions.has(traceCountry) && excludedSubdivision === false;
     return {
       state: supported ? "pass" : "fail",
+      remedy: supported ? undefined : REMEDY.CHANGE_EXIT,
       ip: traceIP,
       country: traceCountry,
       timezone,
@@ -394,7 +421,7 @@
 
   async function checkTimezone(expectedZone, expectedOffset) {
     if (!expectedZone || !Number.isInteger(expectedOffset)) {
-      return { state: "unknown", detail: "需先取得出口時區" };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "需先取得出口時區" };
     }
     try {
       const now = new Date();
@@ -404,7 +431,7 @@
       };
       const worker = await workerClockProbe();
       if (!worker || typeof worker.timezone !== "string" || !Number.isInteger(worker.offset)) {
-        return { state: "unknown", detail: "無法讀取背景頁時區" };
+        return { state: "unknown", remedy: REMEDY.RESTART, detail: "無法讀取背景頁時區" };
       }
       const workerTimeZone = canonicalTimeZone(worker.timezone);
       const matches = main.timezone === expectedZone
@@ -413,25 +440,26 @@
         && worker.offset === expectedOffset;
       return {
         state: matches ? "pass" : "fail",
+        remedy: matches ? undefined : REMEDY.RESTART,
         detail: matches
           ? `${expectedZone}・主頁與背景頁一致`
           : `出口 ${expectedZone}・主頁 ${main.timezone || "未知"}・背景頁 ${workerTimeZone || "未知"}`,
       };
     } catch (_) {
-      return { state: "unknown", detail: "無法比對出口與瀏覽器時區" };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "無法比對出口與瀏覽器時區" };
     }
   }
 
   function checkReputation(network) {
     const assessment = expectedEnvironment().assessment;
     if (!assessment || assessment.schema !== 1) {
-      return { state: "unknown", detail: "IP 信譽資料格式無法辨識" };
+      return { state: "unknown", remedy: REMEDY.WAIT_REPUTATION, detail: "IP 信譽資料格式無法辨識" };
     }
     if (assessment.status === "unknown") {
-      return { state: "unknown", detail: "IP 信譽未驗證；請重新開啟 Claude Chrome" };
+      return { state: "unknown", remedy: REMEDY.WAIT_REPUTATION, detail: "IP 信譽未驗證；請重新開啟 Claude Chrome" };
     }
     if (assessment.status !== "ok" && assessment.status !== "warning") {
-      return { state: "unknown", detail: "IP 信譽資料格式無法辨識" };
+      return { state: "unknown", remedy: REMEDY.WAIT_REPUTATION, detail: "IP 信譽資料格式無法辨識" };
     }
 
     const detections = assessment.detections;
@@ -456,12 +484,12 @@
     const networkTypeValid = typeof assessment.networkType === "string" && assessment.networkType.trim().length > 0;
     const providerValid = typeof assessment.provider === "string" && assessment.provider.trim().length > 0;
     if (!booleansValid || !scoresValid || !checkedAtValid || !/^[A-Z]{2}$/.test(countryCode) || !timeZone || !networkTypeValid || !providerValid) {
-      return { state: "unknown", detail: "IP 信譽資料不完整或已過期；請重新開啟 Claude Chrome" };
+      return { state: "unknown", remedy: REMEDY.WAIT_REPUTATION, detail: "IP 信譽資料不完整或已過期；請重新開啟 Claude Chrome" };
     }
 
     const assessmentIP = normalizeIP(assessment.ip || "");
     if (!assessmentIP || assessmentIP !== network.ip || countryCode !== network.country || timeZone !== network.timezone) {
-      return { state: "fail", detail: "出口與信譽資料不一致；請重新開啟 Claude Chrome" };
+      return { state: "fail", remedy: REMEDY.RESTART, detail: "出口與信譽資料不一致；請重新開啟 Claude Chrome" };
     }
 
     const detectionLabels = {
@@ -495,6 +523,7 @@
       : "超出保守門檻";
     return {
       state: acceptable ? "pass" : "fail",
+      remedy: acceptable || overrideEligible ? undefined : REMEDY.CHANGE_EXIT,
       overrideEligible: !acceptable && overrideEligible,
       snapshotKey,
       detail: acceptable
@@ -506,7 +535,7 @@
   function expectedLanguages(network) {
     const assessment = expectedEnvironment().assessment;
     if (!assessment || assessment.schema !== 1) {
-      return { state: "unknown", detail: "啟動語言資料格式無法辨識" };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "啟動語言資料格式無法辨識" };
     }
 
     const country = assessment.exitCountryCode;
@@ -514,30 +543,30 @@
     const languages = assessment.exitLanguages;
     if (typeof country !== "string" || !/^[A-Z]{2}$/.test(country)
       || typeof primary !== "string" || !Array.isArray(languages)) {
-      return { state: "unknown", detail: "啟動語言資料不完整" };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "啟動語言資料不完整" };
     }
     if (country !== network.country) {
-      return { state: "fail", detail: "出口地區已改變，請重新開啟 Claude Chrome" };
+      return { state: "fail", remedy: REMEDY.RESTART, detail: "出口地區已改變，請重新開啟 Claude Chrome" };
     }
 
     try {
       const canonical = Intl.getCanonicalLocales(primary);
       if (canonical.length !== 1 || canonical[0] !== primary) {
-        return { state: "fail", detail: "啟動語言標籤格式不一致" };
+        return { state: "fail", remedy: REMEDY.RESTART, detail: "啟動語言標籤格式不一致" };
       }
       const locale = new Intl.Locale(primary);
       const baseParts = [locale.language, locale.script].filter(Boolean);
       const expectedBaseName = [...baseParts, locale.region].filter(Boolean).join("-");
       const fallback = Intl.getCanonicalLocales(baseParts.join("-"))[0];
       if (locale.region !== country || locale.baseName !== expectedBaseName || primary !== locale.baseName) {
-        return { state: "fail", detail: "啟動語言與出口地區不一致" };
+        return { state: "fail", remedy: REMEDY.RESTART, detail: "啟動語言與出口地區不一致" };
       }
       if (languages.length !== 2 || languages[0] !== primary || languages[1] !== fallback) {
-        return { state: "fail", detail: "啟動語言順序不一致" };
+        return { state: "fail", remedy: REMEDY.RESTART, detail: "啟動語言順序不一致" };
       }
       return { state: "pass", primary, languages, detail: `${primary}・${languages.join("、")}` };
     } catch (_) {
-      return { state: "unknown", detail: "無法辨識啟動語言標籤" };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "無法辨識啟動語言標籤" };
     }
   }
 
@@ -548,13 +577,14 @@
     const primary = typeof navigator.language === "string" ? navigator.language : "";
     const languages = Array.isArray(navigator.languages) ? Array.from(navigator.languages) : null;
     if (!primary || !languages || languages.some((value) => typeof value !== "string")) {
-      return { state: "unknown", detail: "瀏覽器未提供完整語言資料" };
+      return { state: "unknown", remedy: REMEDY.RESTART, detail: "瀏覽器未提供完整語言資料" };
     }
     const matches = primary === expected.primary
       && languages.length === expected.languages.length
       && languages.every((value, index) => value === expected.languages[index]);
     return {
       state: matches ? "pass" : "fail",
+      remedy: matches ? undefined : REMEDY.RESTART,
       detail: matches
         ? `${primary}・與 ${network.country} 出口一致`
         : `瀏覽器 ${languages.join("、") || primary}・預期 ${expected.languages.join("、")}`,
@@ -632,7 +662,9 @@
   }
 
   function evaluateWebRTC(gathered, observedIP) {
-    if (!gathered.complete) return { state: "unknown", detail: gathered.reason || "WebRTC 狀態未知" };
+    if (!gathered.complete) {
+      return { state: "unknown", remedy: REMEDY.REVIEW_WEBRTC, detail: gathered.reason || "WebRTC 狀態未知" };
+    }
 
     const observed = normalizeIP(observedIP);
     for (const candidate of gathered.candidates) {
@@ -640,11 +672,15 @@
       if (candidate.address.toLowerCase().endsWith(".local")) continue;
       const normalized = normalizeIP(candidate.address);
       if (!normalized) continue;
-      if (!isPublicIP(normalized)) return { state: "fail", detail: "觀察到本機或私人 WebRTC 位址" };
-      if (candidate.protocol === "udp") {
-        return { state: "fail", detail: "觀察到未經代理的 WebRTC UDP 位址" };
+      if (!isPublicIP(normalized)) {
+        return { state: "fail", remedy: REMEDY.REVIEW_WEBRTC, detail: "觀察到本機或私人 WebRTC 位址" };
       }
-      if (normalized !== observed) return { state: "fail", detail: "WebRTC 公網位址與 HTTPS 出口不一致" };
+      if (candidate.protocol === "udp") {
+        return { state: "fail", remedy: REMEDY.REVIEW_WEBRTC, detail: "觀察到未經代理的 WebRTC UDP 位址" };
+      }
+      if (normalized !== observed) {
+        return { state: "fail", remedy: REMEDY.REVIEW_WEBRTC, detail: "WebRTC 公網位址與 HTTPS 出口不一致" };
+      }
     }
     return { state: "pass", detail: "未觀察到非代理 UDP 或額外公網 IP" };
   }
@@ -685,35 +721,113 @@
 
   function checkFingerprint() {
     try {
-      if (navigator.webdriver !== false) return { state: "fail", detail: "瀏覽器顯示自動化狀態" };
+      if (navigator.webdriver !== false) {
+        return { state: "fail", remedy: REMEDY.REVIEW_BROWSER, detail: "瀏覽器顯示自動化狀態" };
+      }
       const userAgent = navigator.userAgent || "";
       const platform = navigator.userAgentData?.platform || navigator.platform || "";
       if (!/Chrome\/\d+/.test(userAgent) || !/Macintosh/.test(userAgent) || !/mac/i.test(platform)) {
-        return { state: "fail", detail: "瀏覽器識別與 macOS Chrome 不一致" };
+        return { state: "fail", remedy: REMEDY.REVIEW_BROWSER, detail: "瀏覽器識別與 macOS Chrome 不一致" };
       }
       if (!Number.isInteger(navigator.hardwareConcurrency) || navigator.hardwareConcurrency < 1 || navigator.hardwareConcurrency > 256) {
-        return { state: "fail", detail: "處理器資訊超出合理範圍" };
+        return { state: "fail", remedy: REMEDY.REVIEW_BROWSER, detail: "處理器資訊超出合理範圍" };
       }
       if (screen.width < 800 || screen.height < 600 || screen.width > 16384 || screen.height > 16384) {
-        return { state: "fail", detail: "畫面尺寸超出合理範圍" };
+        return { state: "fail", remedy: REMEDY.REVIEW_BROWSER, detail: "畫面尺寸超出合理範圍" };
       }
 
       const firstCanvas = canvasSample();
       const secondCanvas = canvasSample();
       const renderer = webGLRenderer();
-      if (!firstCanvas || !secondCanvas || !renderer) return { state: "unknown", detail: "無法完成本機圖形一致性檢查" };
-      if (firstCanvas !== secondCanvas) return { state: "fail", detail: "同一次檢查的 Canvas 結果不一致" };
+      if (!firstCanvas || !secondCanvas || !renderer) {
+        return { state: "unknown", remedy: REMEDY.REVIEW_BROWSER, detail: "無法完成本機圖形一致性檢查" };
+      }
+      if (firstCanvas !== secondCanvas) {
+        return { state: "fail", remedy: REMEDY.REVIEW_BROWSER, detail: "同一次檢查的 Canvas 結果不一致" };
+      }
 
       const rendererLabel = renderer.length > 64 ? `${renderer.slice(0, 61)}…` : renderer;
       return { state: "pass", detail: `本機摘要 ${localDigest(firstCanvas)}・${rendererLabel}` };
     } catch (_) {
-      return { state: "unknown", detail: "無法完成瀏覽器一致性檢查" };
+      return { state: "unknown", remedy: REMEDY.REVIEW_BROWSER, detail: "無法完成瀏覽器一致性檢查" };
+    }
+  }
+
+  function fontVisibility(family) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    const sample = "漢字測試國語廣東話 0123456789";
+    context.font = "72px monospace";
+    const fallbackWidth = context.measureText(sample).width;
+    context.font = `72px "${family}", monospace`;
+    return Math.abs(context.measureText(sample).width - fallbackWidth) > 0.1;
+  }
+
+  function checkFonts() {
+    const families = ["Microsoft YaHei", "PingFang SC", "PingFang TC", "PingFang HK"];
+    try {
+      const visibility = families.map((family) => ({ family, visible: fontVisibility(family) }));
+      if (visibility.every((item) => item.visible === null)) {
+        return { state: "info", detail: "頁面字型度量無法確認；此項僅供參考。" };
+      }
+      const visible = visibility.filter((item) => item.visible === true).map((item) => item.family);
+      return {
+        state: "info",
+        detail: visible.length > 0
+          ? `頁面字型度量推測可見：${visible.join("、")}；此項僅供參考。PingFang 是 macOS 常見系統字型，毋須移除。`
+          : "頁面字型度量無法確認指定中文字型；此項僅供參考。PingFang 是 macOS 常見系統字型，毋須移除。",
+      };
+    } catch (_) {
+      return { state: "info", detail: "頁面字型度量無法確認；此項僅供參考。" };
     }
   }
 
   function renderResult(target, result) {
-    const label = result.state === "pass" ? "通過" : result.state === "fail" ? "未通過" : "未知";
+    const label = result.state === "pass"
+      ? "通過"
+      : result.state === "fail"
+        ? "未通過"
+        : result.state === "info" ? "參考" : "未知";
     setRow(target, result.state, label, result.detail);
+  }
+
+  function remedyCodesForEvaluation(evaluation, target) {
+    const codes = [];
+    if (!target) codes.push(REMEDY.RESTART);
+    const results = evaluation.network.state === "pass"
+      ? [evaluation.reputation, evaluation.timezone, evaluation.webrtc, evaluation.language, evaluation.fingerprint]
+      : [evaluation.network];
+    for (const result of results) {
+      if (result.state === "pass" || typeof result.remedy !== "string") continue;
+      if (!codes.includes(result.remedy)) codes.push(result.remedy);
+    }
+    return codes;
+  }
+
+  function renderRemedyGuide(evaluation, passed, target) {
+    elements.remedySteps.replaceChildren();
+    if (passed) {
+      elements.remedyPanel.hidden = true;
+      return;
+    }
+    for (const code of remedyCodesForEvaluation(evaluation, target)) {
+      const instruction = REMEDY_STEPS[code];
+      if (!instruction) continue;
+      const item = document.createElement("li");
+      item.textContent = instruction;
+      const resource = REMEDY_LINKS[code];
+      if (resource) {
+        const link = document.createElement("a");
+        link.href = resource.url;
+        link.textContent = resource.label;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        item.append(" ", link);
+      }
+      elements.remedySteps.append(item);
+    }
+    elements.remedyPanel.hidden = elements.remedySteps.childElementCount === 0;
   }
 
   function configureRiskAcceptance(reputation) {
@@ -757,6 +871,7 @@
         : "請修正或重新檢查後再繼續。";
     elements.continueButton.disabled = !passed;
     elements.retryButton.disabled = false;
+    renderRemedyGuide(evaluation, passed, target);
 
     if (passed && navigate && token === generation) window.location.assign(target);
     return passed;
@@ -774,13 +889,15 @@
     let network;
     let gathered;
     let fingerprint;
+    let fonts;
     try {
-      [network, gathered, fingerprint] = await Promise.all([
+      [network, gathered, fingerprint, fonts] = await Promise.all([
         checkNetwork(controller.signal, options.forceNetwork === true)
-          .catch(() => ({ state: "unknown", detail: "無法完成出口檢查", ip: null, timezone: "", offset: null })),
+          .catch(() => ({ state: "unknown", remedy: REMEDY.CHECK_CONNECTION, detail: "無法完成出口檢查", ip: null, timezone: "", offset: null })),
         gatherCandidates(token)
           .catch(() => ({ complete: false, candidates: [], reason: "無法完成 WebRTC 檢查" })),
         Promise.resolve(checkFingerprint()),
+        Promise.resolve(checkFonts()),
       ]);
     } finally {
       clearTimeout(timeout);
@@ -792,7 +909,9 @@
     if (token !== generation) return false;
     const reputation = checkReputation(network);
     const language = checkLanguage(network);
-    const webrtc = network.ip ? evaluateWebRTC(gathered, network.ip) : { state: "unknown", detail: "需先確認 HTTPS 出口" };
+    const webrtc = network.ip
+      ? evaluateWebRTC(gathered, network.ip)
+      : { state: "unknown", remedy: REMEDY.REVIEW_WEBRTC, detail: "需先確認 HTTPS 出口" };
 
     renderResult(elements.network, network);
     renderResult(elements.reputation, reputation);
@@ -800,6 +919,7 @@
     renderResult(elements.webrtc, webrtc);
     renderResult(elements.language, language);
     renderResult(elements.fingerprint, fingerprint);
+    renderResult(elements.fonts, fonts);
 
     lastEvaluation = { network, reputation, timezone, webrtc, language, fingerprint, token };
     return updateOverall(lastEvaluation, options.navigate === true);

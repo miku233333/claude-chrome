@@ -59,7 +59,7 @@ final class AppDelegate: NSObject {
         guard let profileURL, let proxyURL else { return }
 
         guard proxyIsListening(proxyURL) else {
-            showError("本機代理未啟動。")
+            showError("本機代理 \(proxyURL) 未啟動。請先啟動代理並確認能連外，再重新開啟 Claude Chrome。")
             return
         }
         guard let startPage = Bundle(url: applicationURL)?.url(forResource: "Start", withExtension: "html") else {
@@ -73,7 +73,7 @@ final class AppDelegate: NSObject {
             DispatchQueue.main.async {
                 self.launchPending = false
                 guard let assessment, let encodedAssessment = assessment.encodedPageData else {
-                    self.showError("無法確認出口 IP 的時區，請檢查本機代理後重試。")
+                    self.showError("無法取得出口 IP 與時區。請確認本機代理能連外，稍後重新開啟 Claude Chrome。")
                     return
                 }
                 let timeZone = assessment.timeZone
@@ -177,7 +177,7 @@ final class AppDelegate: NSObject {
               let value = dictionary["proxyURL"] as? String,
               validProxyURL(value)
         else {
-            showError("代理設定格式不正確。")
+            showError("代理設定格式不正確。請檢查 ~/Library/Application Support/Claude Chrome/config.json 的 proxyURL 是否為本機 HTTP 代理及連接埠。")
             return nil
         }
         return value

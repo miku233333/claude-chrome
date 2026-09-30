@@ -189,6 +189,43 @@ h1 {
   color: var(--warning);
 }
 
+.check-row[data-state="info"] .status {
+  border-color: var(--terracotta);
+  color: var(--terracotta-dark);
+}
+
+.remedy-panel {
+  margin-top: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.remedy-panel[hidden] {
+  display: none;
+}
+
+.remedy-panel h2 {
+  margin: 0;
+  color: var(--terracotta-dark);
+  font-size: 14px;
+}
+
+.remedy-panel ol {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.remedy-panel a {
+  color: var(--terracotta-dark);
+}
+
 .risk-acceptance {
   display: flex;
   align-items: flex-start;
