@@ -4,7 +4,7 @@
 
 [繁體中文](README.zh-Hant.md)
 
-Claude Chrome 1.2.5 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
+Claude Chrome 1.2.6 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
 
 ## Requirements
 
@@ -78,6 +78,8 @@ Claude Chrome opens the bundled environment-check page in its own browser window
 The dedicated profile disables Google browser sign-in, sync, and the AI Mode address-bar button. Chrome's native new-window and new-tab commands use the selected search engine's new-tab page; the checks govern the start page's Continue button, while the address bar supports direct navigation. Choose Google or DuckDuckGo in Chrome Settings → Search engine; the launcher preserves your search engine choice.
 
 The dedicated profile is stored at `~/Library/Application Support/Claude Chrome/Profile`. A legacy profile at `~/.local/share/claude-network-guard/chrome-login-profile` is reused when present. Profile directories must be real directories with mode `0700`.
+
+On each cold launch, the launcher registers extension `fcoeoabgfenejglbffodgkkbkcdhcgfn` in the dedicated profile using only Chrome Web Store's official update service. Chrome handles its updates automatically. The first installation requires you to approve its requested permissions; it can be disabled later from `chrome://extensions`.
 
 The launcher treats this as an offline browser profile: it disables Chrome's Google sign-in preference and starts Chrome with `--disable-sync`. Signing in to the Claude website is separate and remains available after the checks pass. Chrome runs with:
 

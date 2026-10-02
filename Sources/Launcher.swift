@@ -435,6 +435,7 @@ final class AppDelegate: NSObject {
     }
 
     private func configureProfile(_ profileURL: URL, languages: [String]) -> Bool {
+        guard configureExternalExtension(profileURL) else { return false }
         let directory = profileURL.appendingPathComponent("Default", isDirectory: true)
         let preferencesURL = directory.appendingPathComponent("Preferences")
         do {
@@ -491,6 +492,64 @@ final class AppDelegate: NSObject {
             return true
         } catch {
             showError("無法更新 Claude Chrome 的語言及登入設定。")
+            return false
+        }
+    }
+
+    private func configureExternalExtension(_ profileURL: URL) -> Bool {
+        let directory = profileURL.appendingPathComponent("External Extensions", isDirectory: true)
+        let configurationURL = directory.appendingPathComponent("fcoeoabgfenejglbffodgkkbkcdhcgfn.json")
+        let expected = ["external_update_url": "https://clients2.google.com/service/update2/crx"]
+        do {
+            if pathState(at: directory.path) == .missing {
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: false,
+                    attributes: [.posixPermissions: 0o700]
+                )
+            }
+            var directoryStatus = stat()
+            guard Darwin.lstat(directory.path, &directoryStatus) == 0,
+                  (directoryStatus.st_mode & S_IFMT) == S_IFDIR,
+                  directoryStatus.st_uid == getuid()
+            else { throw CocoaError(.fileWriteNoPermission) }
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+
+            let data = try JSONSerialization.data(withJSONObject: expected, options: .sortedKeys)
+            var fileStatus = stat()
+            var contentMatches = false
+            if Darwin.lstat(configurationURL.path, &fileStatus) == 0 {
+                guard (fileStatus.st_mode & S_IFMT) == S_IFREG,
+                      fileStatus.st_uid == getuid(),
+                      fileStatus.st_nlink == 1
+                else { throw CocoaError(.fileWriteNoPermission) }
+                if fileStatus.st_size <= 4_096 {
+                    contentMatches = (try? Data(contentsOf: configurationURL)) == data
+                }
+            } else if errno != ENOENT {
+                throw CocoaError(.fileWriteNoPermission)
+            }
+            if !contentMatches {
+                try data.write(to: configurationURL, options: .atomic)
+            }
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configurationURL.path)
+
+            var verifiedDirectoryStatus = stat()
+            var verifiedFileStatus = stat()
+            guard Darwin.lstat(directory.path, &verifiedDirectoryStatus) == 0,
+                  (verifiedDirectoryStatus.st_mode & S_IFMT) == S_IFDIR,
+                  verifiedDirectoryStatus.st_uid == getuid(),
+                  (verifiedDirectoryStatus.st_mode & 0o777) == 0o700,
+                  Darwin.lstat(configurationURL.path, &verifiedFileStatus) == 0,
+                  (verifiedFileStatus.st_mode & S_IFMT) == S_IFREG,
+                  verifiedFileStatus.st_uid == getuid(),
+                  verifiedFileStatus.st_nlink == 1,
+                  (verifiedFileStatus.st_mode & 0o777) == 0o600,
+                  try Data(contentsOf: configurationURL) == data
+            else { throw CocoaError(.fileWriteNoPermission) }
+            return true
+        } catch {
+            showError("無法更新 Claude Chrome 的官方擴充功能設定。")
             return false
         }
     }

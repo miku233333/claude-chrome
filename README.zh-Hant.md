@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-Claude Chrome 1.2.5 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
+Claude Chrome 1.2.6 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
@@ -78,6 +78,8 @@ Claude Chrome 會在有網址列及分頁的獨立瀏覽器視窗開啟內置環
 專用 profile 關閉 Google 瀏覽器登入、同步及網址列的 AI Mode 按鈕。Chrome 原生新增視窗及分頁指令會使用所選搜尋引擎的新分頁頁面；環境檢查控制首頁的繼續按鈕，網址列可直接前往其他網站。可在 Chrome「設定 → 搜尋引擎」選擇 Google 或 DuckDuckGo；啟動器會保留這項選擇。
 
 獨立 profile 位於 `~/Library/Application Support/Claude Chrome/Profile`；如已有舊 profile `~/.local/share/claude-network-guard/chrome-login-profile`，App 會沿用它。Profile 必須是權限 `0700` 的真實目錄，不能是 symlink。
+
+每次冷啟動時，啟動器只會透過 Chrome Web Store 官方更新服務，為專用 profile 登記擴充功能 `fcoeoabgfenejglbffodgkkbkcdhcgfn`；後續更新由 Chrome 自動處理。首次安裝須由你自行核准所需權限，之後可在 `chrome://extensions` 停用。
 
 啟動器把它設為離線瀏覽器 profile：關閉 Chrome 的 Google 登入偏好，並以 `--disable-sync` 啟動。通過檢查後仍可另行登入 Claude 網站，兩者互不相干。Chrome 使用：
 
