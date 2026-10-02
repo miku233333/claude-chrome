@@ -37,9 +37,11 @@
     "redirect_uri", "response_type", "scope", "state",
   ];
   const OAUTH_OPTIONAL_PARAMETERS = new Set(["login_hint", "login_method", "orgUUID"]);
+  let externalTarget = false;
   const launchTarget = (() => {
     const parameters = new URLSearchParams(window.location.hash.slice(1));
-    const target = validTargetURL(parameters.get("target") || "");
+    externalTarget = parameters.get("external") === "1";
+    const target = validTargetURL(parameters.get("target") || "", externalTarget);
     parameters.delete("target");
     const sanitizedURL = new URL(window.location.href);
     sanitizedURL.hash = parameters.toString();
@@ -67,7 +69,11 @@
     fonts: rowElements("fonts"),
   };
 
-  if (launchTarget && launchTarget !== HOME_TARGET) elements.continueButton.textContent = "繼續 Claude Code 登入";
+  if (launchTarget && launchTarget !== HOME_TARGET) {
+    elements.continueButton.textContent = externalTarget ? "開啟外接頁面" : isDesktopLoginURL(launchTarget)
+      ? "繼續 Claude 桌面版登入"
+      : "繼續 Claude Code 登入";
+  }
 
   let generation = 0;
   let fetchController = null;
@@ -219,8 +225,43 @@
     return { timezone, assessment, target: launchTarget };
   }
 
-  function validTargetURL(value) {
+  function isDesktopLoginURL(value) {
+    if (typeof value !== "string" || new TextEncoder().encode(value).length > 1024
+      || !/^https:\/\/(?:claude\.com\/cai|claude\.ai)\/login\/app-google-auth\?/.test(value)) return false;
+    try {
+      const target = new URL(value);
+      const path = target.hostname === "claude.com" ? "/cai/login/app-google-auth"
+        : target.hostname === "claude.ai" ? "/login/app-google-auth" : "";
+      if (target.protocol !== "https:" || target.username || target.password || target.port
+        || target.hash || !path || target.pathname !== path) return false;
+      const names = Array.from(target.searchParams.keys());
+      if (names.some((name) => name !== "hop_nonce" && name !== "open_in_browser")
+        || target.searchParams.getAll("hop_nonce").length !== 1
+        || target.searchParams.getAll("open_in_browser").length > 1
+        || !/^[A-Za-z0-9_-]{32}$/.test(target.searchParams.get("hop_nonce") || "")) return false;
+      const browserFlag = target.searchParams.get("open_in_browser");
+      return browserFlag === null || browserFlag === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isExternalURL(value) {
+    if (typeof value !== "string" || new TextEncoder().encode(value).length > 8192
+      || !value.startsWith("https://") || /[\u0000-\u001f\u007f]/.test(value)) return false;
+    try {
+      const target = new URL(value);
+      const desktopEndpoint = (target.hostname === "claude.com" && target.pathname === "/cai/login/app-google-auth")
+        || (target.hostname === "claude.ai" && target.pathname === "/login/app-google-auth");
+      if (desktopEndpoint && !isDesktopLoginURL(value)) return false;
+      return target.protocol === "https:" && !!target.hostname && !target.username && !target.password;
+    } catch (_) { return false; }
+  }
+
+  function validTargetURL(value, allowExternal = false) {
     if (value === HOME_TARGET) return value;
+    if (allowExternal) return isExternalURL(value) ? value : "";
+    if (isDesktopLoginURL(value)) return value;
     if (typeof value !== "string" || new TextEncoder().encode(value).length > 8192) return "";
     try {
       const target = new URL(value);

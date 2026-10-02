@@ -4,7 +4,7 @@
 
 [繁體中文](README.zh-Hant.md)
 
-Claude Chrome 1.2.3 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
+Claude Chrome 1.2.5 is a macOS browser app with a bundled Chrome engine, dedicated profile, and fixed local HTTP proxy. It uses its own name and Dock icon. The project is available at [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome) under the MIT License.
 
 ## Requirements
 
@@ -52,6 +52,24 @@ Quit Claude Chrome completely, then install the verified build without re-signin
 ```
 
 The installer stages an APFS clone, clears extended attributes, verifies the complete signature and configured certificate fingerprint, then replaces `/Applications/Claude Chrome.app`. It keeps at most one rollback copy at `~/Library/Application Support/Claude Chrome/Previous Claude Chrome.app` and refuses to overwrite a running installation. An optional source App path may be passed as the only argument.
+
+## Claude login and external-link routing
+
+Claude Login Router sends HTTPS login, authorization, and external links opened by Claude Desktop to Claude Chrome. It also handles Claude and Anthropic domains and preserves the desktop Google login's `hop_nonce` check. When a managed Claude Chrome window is already open, login continues in a new tab in that window. General HTTP/HTTPS links from other apps use the browser recorded before activation. Claude Chrome's environment checks still apply.
+
+Build and install the updated Claude Chrome first, then build the router:
+
+```sh
+./scripts/build-login-router.sh
+cp -cRp "dist/Claude Login Router.app" /Applications/
+"/Applications/Claude Login Router.app/Contents/MacOS/Claude Login Router" --enable
+```
+
+Activation changes the macOS HTTP/HTTPS default handler to the router and may require system confirmation. The previous browsers are stored in the local `login-router.json`; `last-route.json` records only the most recent source app and route type, without URLs. Restore the previous browsers with:
+
+```sh
+"/Applications/Claude Login Router.app/Contents/MacOS/Claude Login Router" --disable
+```
 
 ## Launch behavior
 

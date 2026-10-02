@@ -37,20 +37,28 @@ final class AppDelegate: NSObject {
     func start() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let targetURL: String
+        let external: Bool
         if arguments.isEmpty {
             targetURL = defaultTargetURL
+            external = false
         } else if arguments.count == 2,
                   arguments[0] == "--login-url",
-                  validOAuthURL(arguments[1]) {
+                  (validOAuthURL(arguments[1]) || DesktopLoginURL.isValid(arguments[1])) {
             targetURL = arguments[1]
+            external = false
+        } else if arguments.count == 2,
+                  arguments[0] == "--external-url",
+                  ExternalURL.isValid(arguments[1]) {
+            targetURL = arguments[1]
+            external = true
         } else {
             showError("登入網址無法確認。")
             return
         }
-        openLoginBrowser(targetURL: targetURL)
+        openLoginBrowser(targetURL: targetURL, external: external)
     }
 
-    private func openLoginBrowser(targetURL: String) {
+    private func openLoginBrowser(targetURL: String, external: Bool) {
         guard !launchPending else { return }
         guard FileManager.default.isExecutableFile(atPath: chromeBinary) else {
             showError("找不到內置瀏覽器核心，請重新建置 Claude Chrome。")
@@ -83,6 +91,7 @@ final class AppDelegate: NSObject {
                     URLQueryItem(name: "timezone", value: timeZone.identifier),
                     URLQueryItem(name: "assessment", value: encodedAssessment),
                     URLQueryItem(name: "target", value: targetURL),
+                    URLQueryItem(name: "external", value: external ? "1" : "0"),
                 ]
                 page.percentEncodedFragment = parameters.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
                 guard let pageURL = page.url else {
@@ -111,7 +120,9 @@ final class AppDelegate: NSObject {
     private func launchBrowser(arguments: [String], timeZone: TimeZone, languages: [String], mode: BrowserLaunchMode) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: chromeBinary)
-        process.arguments = arguments
+        process.arguments = mode == .reuse
+            ? arguments.filter { $0 != "--new-window" }
+            : arguments
         var environment = ProcessInfo.processInfo.environment
         environment["TZ"] = timeZone.identifier
         process.environment = environment

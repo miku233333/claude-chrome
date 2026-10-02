@@ -179,7 +179,7 @@ fi
   -o "$STAGING_APP/Contents/MacOS/Claude Chrome"
 
 /usr/bin/swiftc -O -target arm64-apple-macos13.0 -framework AppKit \
-  "$SOURCE_DIR/Launcher.swift" "$SOURCE_DIR/ExitAssessment.swift" \
+  "$SOURCE_DIR/Launcher.swift" "$SOURCE_DIR/ExitAssessment.swift" "$SOURCE_DIR/DesktopLoginURL.swift" "$SOURCE_DIR/ExternalURL.swift" \
   -o "$GUARD_EXECUTABLE"
 
 /usr/bin/swiftc -O -target arm64-apple-macos13.0 -framework AppKit \

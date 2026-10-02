@@ -4,7 +4,7 @@
 
 [English](README.md)
 
-Claude Chrome 1.2.3 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
+Claude Chrome 1.2.5 是 macOS 瀏覽器 App，內置 Chrome 核心，使用獨立 profile 及固定本機 HTTP 代理，並有自己的名稱與 Dock 圖示。專案以 MIT License 發布於 [miku233333/claude-chrome](https://github.com/miku233333/claude-chrome)。
 
 ## 系統需求
 
@@ -52,6 +52,24 @@ App 會輸出至 `dist/Claude Chrome.app`，內置本機已安裝的 Chrome 核�
 ```
 
 安裝器會先建立 APFS clone、清除 extended attributes，並驗證完整簽章及已設定的憑證 fingerprint，再替換 `/Applications/Claude Chrome.app`。它最多保留一份 rollback 於 `~/Library/Application Support/Claude Chrome/Previous Claude Chrome.app`，並拒絕覆蓋正在執行的版本；唯一參數可指定其他來源 App 路徑。
+
+## Claude 登入及外接連結轉接
+
+Claude Login Router 將 Claude 桌面版發出的 HTTPS 登入、授權及外接連結交給 Claude Chrome，亦處理 Claude／Anthropic 網域連結，保留桌面 Google 登入的 `hop_nonce` 校驗值。如已有受管理的 Claude Chrome 視窗，登入會在該視窗的新分頁繼續。其他 App 的一般 HTTP／HTTPS 連結交回啟用前的瀏覽器。外接頁面仍須通過 Claude Chrome 環境檢查。
+
+先建置並安裝新版 Claude Chrome，再建置轉接器：
+
+```sh
+./scripts/build-login-router.sh
+cp -cRp "dist/Claude Login Router.app" /Applications/
+"/Applications/Claude Login Router.app/Contents/MacOS/Claude Login Router" --enable
+```
+
+啟用會將 macOS HTTP／HTTPS 預設處理程式改為轉接器，系統可能要求確認。原瀏覽器記錄於本機 `login-router.json`；`last-route.json` 只記錄最近一次來源 App 及轉接類型，不保存網址。停用及還原：
+
+```sh
+"/Applications/Claude Login Router.app/Contents/MacOS/Claude Login Router" --disable
+```
 
 ## 啟動方式
 
